@@ -1,0 +1,23 @@
+isync (0.7-1) unstable; urgency=low
+
+  * New upstream version (Closes: #121312, #92051).
+  * Rumors say this might fix bugs #102255 and #120272,
+    but I have no test setup right now, so I'm leaving them open.
+  * Updated standards-version.
+
+ -- Tommi Virtanen <tv@debian.org>  Sat,  5 Jan 2002 16:13:35 +0200
+
+isync (0.5-1) unstable; urgency=low
+
+  * New upstream version (Closes: #98642).
+  * Install sample.isyncrc too (Closes: #90464).
+
+ -- Tommi Virtanen <tv@debian.org>  Sat, 23 Jun 2001 01:19:07 +0300
+
+isync (0.4-1) unstable; urgency=low
+
+  * Initial Release.
+
+ -- Tommi Virtanen <tv@debian.org>  Sat, 10 Mar 2001 18:43:35 +0200
+
+
