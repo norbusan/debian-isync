@@ -1,7 +1,7 @@
-/* $Id: cram.c,v 1.4 2001/11/16 21:23:13 me Exp $
+/* $Id: cram.c,v 1.8 2003/05/07 00:06:37 ossi Exp $
  *
  * isync - IMAP4 to maildir mailbox synchronizer
- * Copyright (C) 2000-1 Michael R. Elkins <me@mutt.org>
+ * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -16,13 +16,18 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * As a special exception, isync may be linked with the OpenSSL library,
+ * despite that library's more restrictive license.
  */
 
-#include <assert.h>
-#include "isync.h"
+#include <config.h>
 
 #if HAVE_LIBSSL
 
+#include "isync.h"
+
+#include <assert.h>
 #include <string.h>
 #include <openssl/hmac.h>
 

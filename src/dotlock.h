@@ -1,16 +1,7 @@
-This package was debianized by Tommi Virtanen <tv@debian.org> and is now
-maintained by Nicolas Boullis <nboullis@debian.org>.
-
-It was downloaded from http://isync.sourceforge.net/
-
-Upstream Author: Michael R. Elkins <me@mutt.org>,
-                 Oswald Buddenhagen <ossi@users.sf.net>
-
-Copyright:
-
+/* $Id: dotlock.h,v 1.2 2002/10/30 02:31:20 me Exp $
+ *
  * isync - IMAP4 to maildir mailbox synchronizer
- * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
- * Copyright (C) 2002-2003 Oswald Buddenhagen <ossi@users.sf.net>
+ * Copyright (C) 2002 Michael R. Elkins <me@mutt.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,6 +19,7 @@ Copyright:
  *
  * As a special exception, isync may be linked with the OpenSSL library,
  * despite that library's more restrictive license.
+ */
 
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL
+int dotlock_lock (const char *, int *);
+int dotlock_unlock (int *);

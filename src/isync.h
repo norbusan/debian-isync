@@ -1,7 +1,8 @@
-/* $Id: isync.h,v 1.24 2001/11/20 18:06:09 me Exp $
+/* $Id: isync.h,v 1.35 2003/05/07 00:06:37 ossi Exp $
  *
  * isync - IMAP4 to maildir mailbox synchronizer
- * Copyright (C) 2000 Michael R. Elkins <me@mutt.org>
+ * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
+ * Copyright (C) 2002-2003 Oswald Buddenhagen <ossi@users.sf.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -16,30 +17,41 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * As a special exception, isync may be linked with the OpenSSL library,
+ * despite that library's more restrictive license.
  */
 
+#include <config.h>
+
 #include <sys/types.h>
-#include <stdarg.h>
-#if HAVE_LIBSSL
-#include <openssl/ssl.h>
+
+#if HAVE_LIBDB
+# define DB_DBM_HSEARCH 1
+# include <db.h>
+#else
+# include <ndbm.h>
 #endif
-#include "debug.h"
+
+#if HAVE_LIBSSL
+# include <openssl/ssl.h>
+#endif
 
 typedef struct
 {
-    int fd;
+  int fd;
 #if HAVE_LIBSSL
-    SSL *ssl;
-    unsigned int use_ssl:1;
+  SSL *ssl;
+  unsigned int use_ssl:1;
 #endif
 } Socket_t;
 
 typedef struct
 {
     Socket_t *sock;
-    char buf[1024];
     int bytes;
     int offset;
+    char buf[1024];
 }
 buffer_t;
 
@@ -55,9 +67,12 @@ struct config
     int port;
     char *user;
     char *pass;
+    char *folder;
     char *box;
+    char *inbox;
     char *alias;
     char *copy_deleted_to;
+    char *tunnel;
     unsigned int max_messages;
     off_t max_size;
     config_t *next;
@@ -79,13 +94,15 @@ struct config
 /* struct representing local mailbox file */
 struct mailbox
 {
+    DBM *db;
     char *path;
     message_t *msgs;
+    int lockfd;
     unsigned int deleted;	/* # of deleted messages */
     unsigned int uidvalidity;
     unsigned int maxuid;	/* largest uid we know about */
-    unsigned int changed:1;
-    unsigned int maxuidchanged:1;
+    unsigned int uidseen : 1;	/* flag indicating whether or not we saw a
+				   valid value for UIDVALIDITY */
 };
 
 /* message dispositions */
@@ -106,7 +123,6 @@ struct message
     message_t *next;
     unsigned int processed:1;	/* message has already been evaluated */
     unsigned int new:1;		/* message is in the new/ subdir */
-    unsigned int changed:1;	/* flags changed */
     unsigned int dead:1;	/* message doesn't exist on the server */
     unsigned int wanted:1;	/* when using MaxMessages, keep this message */
 };
@@ -117,7 +133,8 @@ typedef struct _list list_t;
 #define NIL	(void*)0x1
 #define LIST	(void*)0x2
 
-struct _list {
+struct _list
+{
     char *val;
     list_t *next;
     list_t *child;
@@ -141,6 +158,7 @@ typedef struct
     list_t *ns_personal;
     list_t *ns_other;
     list_t *ns_shared;
+    unsigned int have_uidplus:1;
     unsigned int have_namespace:1;
 #if HAVE_LIBSSL
     unsigned int have_cram:1;
@@ -153,7 +171,6 @@ imap_t;
 /* flags for sync_mailbox */
 #define	SYNC_DELETE	(1<<0)	/* delete local that don't exist on server */
 #define SYNC_EXPUNGE	(1<<1)	/* don't fetch deleted messages */
-#define SYNC_QUIET	(1<<2)	/* only display critical errors */
 
 /* flags for maildir_open */
 #define OPEN_FAST	(1<<0)	/* fast open - don't parse */
@@ -163,7 +180,11 @@ extern config_t global;
 extern config_t *boxes;
 extern unsigned int Tag;
 extern char Hostname[256];
-extern int Verbose;
+extern int Verbose, Quiet;
+
+extern void info (const char *, ...);
+extern void infoc (char);
+extern void warn (const char *, ...);
 
 #if HAVE_LIBSSL
 extern SSL_CTX *SSLContext;
@@ -175,23 +196,25 @@ char *next_arg (char **);
 
 int sync_mailbox (mailbox_t *, imap_t *, int, unsigned int, unsigned int);
 
-void load_config (const char *);
+void load_config (const char *, int *);
 char * expand_strdup (const char *s);
 config_t *find_box (const char *);
-void free_config (void);
 
 void imap_close (imap_t *);
 int imap_copy_message (imap_t * imap, unsigned int uid, const char *mailbox);
 int imap_fetch_message (imap_t *, unsigned int, int);
 int imap_set_flags (imap_t *, unsigned int, unsigned int);
 int imap_expunge (imap_t *);
-imap_t *imap_open (config_t *, unsigned int, imap_t *);
+imap_t *imap_connect (config_t *);
+imap_t *imap_open (config_t *, unsigned int, imap_t *, int, int);
 int imap_append_message (imap_t *, int, message_t *);
+int imap_list (imap_t *);
 
 mailbox_t *maildir_open (const char *, int flags);
 int maildir_expunge (mailbox_t *, int);
 int maildir_set_uidvalidity (mailbox_t *, unsigned int uidvalidity);
-int maildir_close (mailbox_t *);
+void maildir_close (mailbox_t *);
+int maildir_update_maxuid (mailbox_t * mbox);
 
 message_t * find_msg (message_t * list, unsigned int uid);
 void free_message (message_t *);

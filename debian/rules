@@ -1,63 +1,54 @@
 #!/usr/bin/make -f
 
-PACKAGE	:= isync
+CFLAGS = -Wall -g
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+CFLAGS += -O0
+else
+CFLAGS += -O2
+endif
 
-configure: configure-stamp
-configure-stamp:
-	./configure --prefix=/usr --mandir=/usr/share/man
-	touch configure-stamp
+DEB_HOST_GNU_TYPE := $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE := $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
 build: build-stamp
-build-stamp: configure debian/control
-	test -e debian/control
-	$(MAKE) CFLAGS="-Wall -g" # -O2
+build-stamp:
+	dh_testdir
+	./configure --build=$(DEB_BUILD_GNU_TYPE) --host=$(DEB_HOST_GNU_TYPE) --prefix=/usr --mandir=/usr/share/man 
+	$(MAKE) CFLAGS="$(CFLAGS)"
 	touch build-stamp
 
-clean: debian/control
-	test -e debian/control
-	test root = "`whoami`" || (echo need root priviledges; exit 1)
-	rm -f build-stamp configure-stamp install-stamp
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp
 	-$(MAKE) distclean
-	rm -rf debian/substvars debian/files debian/tmp
+	dh_clean Makefile config.log config.status
 
-binary-indep: build
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs usr/bin usr/share/man/man1
+	$(MAKE) DESTDIR=$(CURDIR)/debian/isync install
 
-binary-arch: build debian/control
-	test -e debian/control
-	test root = "`whoami`" || (echo need root priviledges; exit 1)
-	rm -rf debian/substvars debian/tmp
-	install -d --mode=0755 debian/tmp \
-		debian/tmp/usr/bin \
-		debian/tmp/usr/share/man/man1
-	$(MAKE) DESTDIR=debian/tmp install
-	install -d --mode=0755 "debian/tmp/usr/share/doc/$(PACKAGE)" \
-		"debian/tmp/usr/share/doc/$(PACKAGE)/examples"
-	install --mode=0644 debian/copyright README \
-		"debian/tmp/usr/share/doc/$(PACKAGE)"
-	gzip -9 debian/tmp/usr/share/man/man1/*
-	install --mode=0644 AUTHORS NEWS README TODO \
-		"debian/tmp/usr/share/doc/$(PACKAGE)/"
-	install --mode=0644 ChangeLog \
-		"debian/tmp/usr/share/doc/$(PACKAGE)/changelog"
-	install --mode=0644 debian/changelog \
-		"debian/tmp/usr/share/doc/$(PACKAGE)/changelog.Debian"
-	install --mode=0644 sample.isyncrc \
-		"debian/tmp/usr/share/doc/$(PACKAGE)/examples"
-	gzip -9 \
-		debian/tmp/usr/share/doc/"$(PACKAGE)"/changelog.Debian \
-		debian/tmp/usr/share/doc/"$(PACKAGE)"/changelog \
-		debian/tmp/usr/share/doc/"$(PACKAGE)"/AUTHORS \
-		debian/tmp/usr/share/doc/"$(PACKAGE)"/NEWS \
-		debian/tmp/usr/share/doc/"$(PACKAGE)"/README \
-		debian/tmp/usr/share/doc/"$(PACKAGE)"/TODO
-	strip --remove-section=.comment --remove-section=.note \
-		debian/tmp/usr/bin/*
-	install -d --mode=0755 debian/tmp/DEBIAN
-	install --mode=0755 debian/postinst debian/prerm \
-		debian/tmp/DEBIAN
-	dpkg-shlibdeps debian/tmp/usr/bin/*
-	dpkg-gencontrol -isp
-	dpkg --build debian/tmp ..
+binary-indep: build install
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs ChangeLog
+	dh_installdocs AUTHORS NEWS README TODO
+	dh_installexamples isyncrc.sample
+	dh_installman
+	dh_installdebconf
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
 
 binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary
+.PHONY: build clean binary-indep binary-arch binary install
