@@ -1,3 +1,16 @@
+isync (0.9.2-4) unstable; urgency=low
+
+  * Add Czech debconf translation, thanks to Martin Šín. (Closes: #317571)
+  * Build with the newest libssl-dev.
+  * Load the debconf library in postinst to ensure that everything works
+    as expected, thanks to lintian for noticing the problem and to
+    Josselin Mouette for pointing to the right doc.
+  * Fix a bashism in the config script, thanks to lintian.
+  * Update the postal address of the FSF in the copyright file.
+  * Bump Standards-Version to 3.6.2. (No change required.)
+
+ -- Nicolas Boullis <nboullis@debian.org>  Mon, 10 Oct 2005 01:37:50 +0200
+
 isync (0.9.2-3) unstable; urgency=low
 
   * Bump build-dependency from libdb4.0-dev to libdb4.2-dev, thanks to
