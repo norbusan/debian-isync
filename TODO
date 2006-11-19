@@ -1,17 +1,53 @@
-don't require maildir_trash
+make SSL certificate validation more automatic.
 
-refactor mailbox support.
-put sync info outside the mailbox itself.
+add deamon mode. primary goal: keep imap password in memory.
 
-store flags in sync info.
+add asynchronous operation to remote mailbox drivers. this is actually
+what prevents us from simply using c-client and thus becoming mailsync.
 
-add option to suppress upload of messages (but not deletion).
+handle custom flags (keywords).
 
-add support for syncing with other: and shared: via NAMESPACE
+fix maildir_{open_store,list} to handle partial names (last char not slash).
 
-isync ignores asynchronous notifications (untagged responses), so mail 
-arriving during a fetch will not be fetched in the current run any more.
+add a way to automatically create and sync subfolders.
 
-add a way to automatically create and sync IMAP subfolders.
+could store TUID even when UIDPLUS is supported. would avoid duplicated
+messages after abort before new UID arrives.
+
+decouple TUID search from append. that's a prerequisite for usable
+MULTIAPPEND, and is generally good for async. should be way faster, too,
+as it saves repeated mailbox rescans with single-file formats.
+
+use MULTIAPPEND and FETCH with multiple messages.
+
+create dummies describing MIME structure of messages bigger than MaxSize.
+flagging the dummy would fetch the real message. possibly remove --renew.
+
+don't SELECT boxes unless really needed; in particular not for appending,
+and in write-only mode not before changes are made.
+
+possibly request message attributes on a per-message basis from the drivers.
+considerations:
+- record non-existing UID ranges in the sync database, so IMAP FETCHes needn't
+  to exclude anyway non-existing messages explicitly.
+- when detect unborn pairs and orphaned messages being gone? implied by expunge:
+  with trashing, by local driver, or of messages we deleted in this run. the
+  remaining cases could be handled by automatic periodical cleanup passes, an 
+  explicit --cleanup action, or be implied by one of the other actions.
+- the benefit of this is questionable, as fine-grained requests will result
+  in sending huge amounts of data, and upstream is often way slower than
+  downstream.
+
+maildir: possibly timestamp mails with remote arrival date.
+
+maybe throw out the ctx->recent stuff - it's used only for one info message.
 
 possibly use ^[[1m to highlight error messages.
+
+consider alternative trash implementation: trash only messages we delete,
+and trash before marking them deleted in the mailbox. downside: all other
+programs have to do the same. and what if the deleted flag is unset?
+
+items out of scope of purely UID based approach:
+- detect message moves between folders
+- recovering from UIDVALIDITY change (uw-imap < 2004.352 does this a lot)

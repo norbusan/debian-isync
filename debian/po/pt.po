@@ -1,0 +1,76 @@
+# Native Portuguese translation of isync.
+# Copyright (C) 2006 THE isync'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the isync package.
+# Ricardo Silva <ardoric@gmail.com>, 2006.
+#
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: isync 0.9.2-4\n"
+"Report-Msgid-Bugs-To: nboullis@debian.org\n"
+"POT-Creation-Date: 2006-11-19 14:51+0100\n"
+"PO-Revision-Date: 2006-07-19 12:53+0100\n"
+"Last-Translator: Ricardo Silva <ardoric@gmail.com>\n"
+"Language-Team: Native Portuguese <traduz@debianpt.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Type: note
+#. Description
+#: ../templates:1001
+msgid "isync won't refetch locally deleted messages"
+msgstr ""
+
+#. Type: note
+#. Description
+#: ../templates:1001
+msgid ""
+"Versions of isync older than 1.0 used to refetch messages that were locally "
+"deleted. Although it was a bug, some people may be using it as a feature. "
+"Since 1.0, messages that are locally deleted will be deleted remotely as "
+"well. People expecting the old buggy behavior will experience data loss."
+msgstr ""
+
+#~ msgid "Abort isync upgrade"
+#~ msgstr "Abortar actualização do isync"
+
+#~ msgid ""
+#~ "You are upgrading from an older version of isync that stored the UID of "
+#~ "each message in a way that is not compatable with the new version. You "
+#~ "need to remove all the messages in local folders downloaded with the old "
+#~ "version of isync. Otherwise isync will get confused and upload duplicate "
+#~ "messages to the IMAP server."
+#~ msgstr ""
+#~ "Está a actualizar por cima de uma versão do isync mais velha que guarda o "
+#~ "UID de cada mensagem de uma forma não compativel com a nova versão. "
+#~ "Necessita de remover todas as mensagens em directórios locais obtidos "
+#~ "usando a versão antiga do isync. De outra forma o isync ficará confuso e "
+#~ "enviará mensagens duplicadas ao servidor de IMAP."
+
+#~ msgid ""
+#~ "A suggested upgrade procedure is to use the isync version 0.7 to "
+#~ "synchronize any local changes in isync-managed mailboxes with your IMAP "
+#~ "server (if there are any local changes to synchronise), and then remove "
+#~ "the contents of the local mailboxes, before upgrading to version 0.8 or "
+#~ "above. Then run isync again to pull down the mail again. You must do this "
+#~ "manually; the Debian package will not do this for you."
+#~ msgstr ""
+#~ "Uma forma sugerida de actualizar é usar a versão 0.7 do isync para "
+#~ "sincronizar quaisquer alterações locais nas caixas de correio geridas "
+#~ "pelo isync com o seu servidor de IMAP (se houver alterações locais para "
+#~ "sincronizar), e depois remover os conteúdos das caixas de correio locais, "
+#~ "antes de actualizar para a versão 0.8 ou superior. Depois correr o isync "
+#~ "de novo para obter de novo o correio. Tem de fazer isto manualmente; o "
+#~ "pacote Debian não o vai fazer por si."
+
+#~ msgid ""
+#~ "If you want, the upgrade of isync can be aborted to let you deal with "
+#~ "this issue. Or you can just suspend the upgrade or switch to a different "
+#~ "virtual console to take care of it. Do not continue past this point "
+#~ "before manually resolving this issue!"
+#~ msgstr ""
+#~ "Se quiser, a actualização do isync pode ser abortada para o deixar lidar "
+#~ "com este assunto. Pode também simplesmente suspender a actualização ou "
+#~ "mudar para uma consola virtual diferente para o resolver. Não passe ao "
+#~ "ponto seguinte sem antes resolver este assunto manualmente!"

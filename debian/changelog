@@ -1,3 +1,17 @@
+isync (1.0.3-1) experimental; urgency=low
+
+  * New upstream release. (Closes: #315423)
+    - Isync now supports breaking and linking threads. (Closes: #177280)
+    - It also supports unflagging messages. (Closes: #111286)
+    - IMAP commands are sent asynchronously. (Closes: #226222)
+  * Kill the old debconf question about upgrades from pre-0.8 versions.
+  * Use the (now obsolete) swedish and portugese translations anyway.
+    (Closes: #337771, #378891)
+  * New debconf note that warns about upgrades from pre-1.0 versions.
+  * Add a build dependency on po-debconf.
+
+ -- Nicolas Boullis <nboullis@debian.org>  Sun, 19 Nov 2006 15:04:31 +0100
+
 isync (0.9.2-4) unstable; urgency=low
 
   * Add Czech debconf translation, thanks to Martin Šín. (Closes: #317571)
