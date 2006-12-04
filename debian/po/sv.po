@@ -14,7 +14,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: isync 0.9.2-3\n"
 "Report-Msgid-Bugs-To: nboullis@debian.org\n"
-"POT-Creation-Date: 2006-11-19 14:51+0100\n"
+"POT-Creation-Date: 2006-12-05 00:29+0100\n"
 "PO-Revision-Date: 2005-11-06 12:14+0100\n"
 "Last-Translator: Daniel Nylander <po@danielnylander.se>\n"
 "Language-Team: Swedish <sv@li.org>\n"
@@ -25,17 +25,17 @@ msgstr ""
 #. Type: note
 #. Description
 #: ../templates:1001
-msgid "isync won't refetch locally deleted messages"
+msgid "isync won't refetch messages deleted locally"
 msgstr ""
 
 #. Type: note
 #. Description
 #: ../templates:1001
 msgid ""
-"Versions of isync older than 1.0 used to refetch messages that were locally "
-"deleted. Although it was a bug, some people may be using it as a feature. "
-"Since 1.0, messages that are locally deleted will be deleted remotely as "
-"well. People expecting the old buggy behavior will experience data loss."
+"Before version 1.0, isync refetched messages that were deleted locally.  "
+"Some users may rely on that bug.  Since 1.0, messages that are deleted "
+"locally will be deleted remotely as well - they will not be refetched.  "
+"Anyone expecting the old buggy behavior may lose data."
 msgstr ""
 
 #~ msgid "Abort isync upgrade"

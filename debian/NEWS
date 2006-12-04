@@ -1,3 +1,14 @@
+isync (1.0.3-1) experimental; urgency=low
+
+    Since 1.0, isync is a wrapper around the new, more powerful, mbsync
+    program. The major rewrite leads to several improvements. Among them,
+    it is no longer needed to set the T (trash) flag to have a message be
+    deleted remotely. Simply removing the message now works. The (minor)
+    downside is that anyone expecting the old broken behavior (messaged
+    deleted locally being refetched) may lose some messages.
+
+ -- Nicolas Boullis <nboullis@debian.org>  Sun, 19 Nov 2006 15:04:31 +0100
+
 isync (0.8-1) unstable; urgency=low
 
   IMPORTANT upgrade note:

@@ -1,3 +1,17 @@
+isync (1.0.3-2) unstable; urgency=low
+
+  * Back to unstable, with permission from Steve Langasek. (Message-ID:
+    <20061121015225.GF28035@borges.dodds.net>)
+  * Rewrite the debconf note, thanks to the debian-l10n-english team (and
+    especially MJ Ray).
+  * Also add some information about the new version into NEWS.Debian.
+  * Remove the information about the need to set the T (trashed) flag from
+    README.Debian.
+  * Also install the isyncrc.sample sample configuration file.
+  * Bump Standards-Version to 3.7.2. (No change required.)
+
+ -- Nicolas Boullis <nboullis@debian.org>  Tue,  5 Dec 2006 00:34:54 +0100
+
 isync (1.0.3-1) experimental; urgency=low
 
   * New upstream release. (Closes: #315423)
