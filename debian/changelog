@@ -1,3 +1,16 @@
+isync (1.0.3-2.1) unstable; urgency=low
+
+  * Non-maintainer upload with maintainer's permission
+  * Debconf templates translations:
+    - French updated by me
+    - Brazilian Portuguese translation added
+    - Czech translation added. Closes: #403473
+    - Russian translation added. Closes: #403510
+    - Vietnamese translation added
+    - Norwegian Bokmål translation added. Closes: #403523
+
+ -- Christian Perrier <bubulle@debian.org>  Sun, 17 Dec 2006 15:31:04 +0100
+
 isync (1.0.3-2) unstable; urgency=low
 
   * Back to unstable, with permission from Steve Langasek. (Message-ID:

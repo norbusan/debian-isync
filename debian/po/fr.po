@@ -1,33 +1,22 @@
-#
-#    Translators, if you are not familiar with the PO format, gettext
-#    documentation is worth reading, especially sections dedicated to
-#    this format, e.g. by running:
-#         info -n '(gettext)PO Files'
-#         info -n '(gettext)Header Entry'
-#
-#    Some information specific to po-debconf are available at
-#            /usr/share/doc/po-debconf/README-trans
-#         or http://www.debian.org/intl/l10n/po-debconf/README-trans
-#
-#    Developers do not need to manually edit POT or PO files.
-#
+# Christian Perrier <bubulle@debian.org>, 2006.
 msgid ""
 msgstr ""
-"Project-Id-Version: isync 0.9.1-1\n"
+"Project-Id-Version: fr\n"
 "Report-Msgid-Bugs-To: nboullis@debian.org\n"
 "POT-Creation-Date: 2006-12-05 00:29+0100\n"
-"PO-Revision-Date: 2003-10-27 11:52+0100\n"
+"PO-Revision-Date: 2006-12-07 06:06+0100\n"
 "Last-Translator: Christian Perrier <bubulle@debian.org>\n"
 "Language-Team: French <debian-l10n-french@lists.debian.org>\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=iso-8859-15\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"X-Generator: KBabel 1.11.4\n"
 
 #. Type: note
 #. Description
 #: ../templates:1001
 msgid "isync won't refetch messages deleted locally"
-msgstr ""
+msgstr "Plus de rÃ©cupÃ©ration des messages effacÃ©s localement"
 
 #. Type: note
 #. Description
@@ -38,47 +27,9 @@ msgid ""
 "locally will be deleted remotely as well - they will not be refetched.  "
 "Anyone expecting the old buggy behavior may lose data."
 msgstr ""
-
-#~ msgid "Abort isync upgrade"
-#~ msgstr "Interrompre la mise à jour d'isync"
-
-#~ msgid ""
-#~ "You are upgrading from an older version of isync that stored the UID of "
-#~ "each message in a way that is not compatable with the new version. You "
-#~ "need to remove all the messages in local folders downloaded with the old "
-#~ "version of isync. Otherwise isync will get confused and upload duplicate "
-#~ "messages to the IMAP server."
-#~ msgstr ""
-#~ "Vous mettez isync à jour à partir d'une version qui utilise une méthode "
-#~ "de stockage des identifiants des messages incompatible avec la nouvelle "
-#~ "version. Il faut supprimer des répertoires locaux tous les messages "
-#~ "téléchargés avec l'ancienne version ; sinon, isync fonctionnera "
-#~ "incorrectement et enverra au serveur IMAP des doublons des messages."
-
-#~ msgid ""
-#~ "A suggested upgrade procedure is to use the isync version 0.7 to "
-#~ "synchronize any local changes in isync-managed mailboxes with your IMAP "
-#~ "server (if there are any local changes to synchronise), and then remove "
-#~ "the contents of the local mailboxes, before upgrading to version 0.8 or "
-#~ "above. Then run isync again to pull down the mail again. You must do this "
-#~ "manually; the Debian package will not do this for you."
-#~ msgstr ""
-#~ "La méthode suggérée pour la mise à jour est la suivante : en utilisant la "
-#~ "version 0.7 d'isync, synchronisez avec le serveur IMAP les éventuelles "
-#~ "modifications locales des boîtes aux lettres gérées par isync ; puis "
-#~ "supprimez le contenu des boîtes aux lettres locales. Ensuite, effectuez "
-#~ "la mise à jour vers une version supérieure ou égale à 0.8. Enfin, "
-#~ "utilisez à nouveau isync pour récupérer les courriels. Vous devez "
-#~ "effectuer cette opération vous-même : le paquet Debian ne la fera pas "
-#~ "automatiquement."
-
-#~ msgid ""
-#~ "If you want, the upgrade of isync can be aborted to let you deal with "
-#~ "this issue. Or you can just suspend the upgrade or switch to a different "
-#~ "virtual console to take care of it. Do not continue past this point "
-#~ "before manually resolving this issue!"
-#~ msgstr ""
-#~ "Si vous le souhaitez, la mise à jour d'isync peut être interrompue pour "
-#~ "vous permettre d'effectuer cette opération. Vous pouvez également "
-#~ "basculer vers une autre console virtuelle pour vous en occuper, puis "
-#~ "reprendre la mise à jour. Ne continuez pas sans faire cette correction."
+"Dans les versions antÃ©rieures Ã  la version 1.0, isync rÃ©cupÃ©rait Ã  nouveau "
+"les messages effacÃ©s localement. Certains utilisateurs pouvaient compter sur "
+"ce comportement, qui est un dysfonctionnement plus qu'une fonctionnalitÃ©. Ã€ partir de la version 1.0, les messages "
+"effacÃ©s localement sont Ã©galement effacÃ©s sur le serveur et ne seront pas "
+"rÃ©cupÃ©rÃ©s Ã  nouveau. Compter sur l'ancien comportement vous expose Ã  des "
+"pertes de messages."

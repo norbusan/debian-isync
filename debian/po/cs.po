@@ -13,11 +13,11 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: isync 0.9.2-3\n"
+"Project-Id-Version: isync 1.0.3-2\n"
 "Report-Msgid-Bugs-To: nboullis@debian.org\n"
 "POT-Creation-Date: 2006-12-05 00:29+0100\n"
-"PO-Revision-Date: 2005-07-09 17:52+0200\n"
-"Last-Translator: Martin Sin <martin.sin@seznam.cz>\n"
+"PO-Revision-Date: 2006-12-17 14:03+0100\n"
+"Last-Translator: Martin Sin <martin.sin@zshk.cz>\n"
 "Language-Team: Czech <debian-l10n-czech@lists.debian.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
@@ -27,7 +27,7 @@ msgstr ""
 #. Description
 #: ../templates:1001
 msgid "isync won't refetch messages deleted locally"
-msgstr ""
+msgstr "isync nebude znovu získávat zprávy smazané na lokálu"
 
 #. Type: note
 #. Description
@@ -38,6 +38,11 @@ msgid ""
 "locally will be deleted remotely as well - they will not be refetched.  "
 "Anyone expecting the old buggy behavior may lose data."
 msgstr ""
+"Před verzí 1.0, isync znovu získával zprávy, které byly smazány na lokálu. "
+"Někteří uživatelé se na tuto chybu spoléhali. Počínaje verzí 1.0 budou "
+"zprávy smazané na lokálu, smazány také na vzdáleném počítači - nebudou "
+"opětovně staženy. Kdokoliv se bude spoléhat na předchozí chybové chování, "
+"může ztratit data."
 
 #~ msgid "Abort isync upgrade"
 #~ msgstr "Zrušení aktualizace isyncu"
