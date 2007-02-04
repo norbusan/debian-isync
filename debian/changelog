@@ -1,3 +1,12 @@
+isync (1.0.3-3) unstable; urgency=low
+
+  * The "thanks Christian" release.
+  * Update German debconf templates translation. Thanks to Erik Schanze
+    (for the translation) and Christian Perrier (for forwarding the
+    translation). (Closes: #407615)
+
+ -- Nicolas Boullis <nboullis@debian.org>  Mon,  5 Feb 2007 00:17:15 +0100
+
 isync (1.0.3-2.1) unstable; urgency=low
 
   * Non-maintainer upload with maintainer's permission

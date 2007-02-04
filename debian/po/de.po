@@ -1,3 +1,4 @@
+# translation of isync_1.0.3-2_de.po to German
 #
 #    Translators, if you are not familiar with the PO format, gettext
 #    documentation is worth reading, especially sections dedicated to
@@ -8,27 +9,27 @@
 #            /usr/share/doc/po-debconf/README-trans
 #         or http://www.debian.org/intl/l10n/po-debconf/README-trans#
 #    Developers do not need to manually edit POT or PO files.
-# Erik Schanze <mail@erikschanze.de>, 2004.
 #
+# Erik Schanze <eriks@debian.org>, 2004 - 2007.
 msgid ""
 msgstr ""
-"Project-Id-Version: isync_0.9.2-1_templates\n"
-"Report-Msgid-Bugs-To: nboullis@debian.org\n"
+"Project-Id-Version: isync_1.0.3-2_de\n"
+"Report-Msgid-Bugs-To: isync@packages.debian.org\n"
 "POT-Creation-Date: 2006-12-05 00:29+0100\n"
-"PO-Revision-Date: 2004-08-23 16:19+0200\n"
-"Last-Translator: Erik Schanze <mail@erikschanze.de>\n"
+"PO-Revision-Date: 2007-01-18 23:05+0100\n"
+"Last-Translator: Erik Schanze <eriks@debian.org>\n"
 "Language-Team: German <debian-l10n-german@lists.debian.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: KBabel 1.3.1\n"
+"X-Generator: KBabel 1.11.4\n"
 "Plural-Forms:  nplurals=2; plural=(n != 1);\n"
 
 #. Type: note
 #. Description
 #: ../templates:1001
 msgid "isync won't refetch messages deleted locally"
-msgstr ""
+msgstr "Isync wird lokal gelöschte Nachrichten nicht nochmal holen"
 
 #. Type: note
 #. Description
@@ -39,47 +40,9 @@ msgid ""
 "locally will be deleted remotely as well - they will not be refetched.  "
 "Anyone expecting the old buggy behavior may lose data."
 msgstr ""
+"Vor der Version 1.0 holte Isync lokal gelöschte Nachrichten "
+"nocheinmal ab. Einige Benutzer halten das für einen Fehler. Seit "
+"der Version 1.0 werden lokal gelöschte Nachrichten auch entfernt "
+"gelöscht - sei werden nicht nocheinmal geholt. Jeder, der sich auf "
+"das frühere, fehlerhafte Verhalten verlässt, könnte Daten verlieren."
 
-#~ msgid "Abort isync upgrade"
-#~ msgstr "Aktualisierung von isync abbrechen"
-
-#~ msgid ""
-#~ "You are upgrading from an older version of isync that stored the UID of "
-#~ "each message in a way that is not compatable with the new version. You "
-#~ "need to remove all the messages in local folders downloaded with the old "
-#~ "version of isync. Otherwise isync will get confused and upload duplicate "
-#~ "messages to the IMAP server."
-#~ msgstr ""
-#~ "Sie aktualisieren eine ältere Version von isync, deren gespeicherte UIDs "
-#~ "jeder Nachricht nicht mit der neuen Version kompatibel sind. Sie müssen "
-#~ "alle Nachrichten in lokalen Ordnern löschen, die Sie mit der alten "
-#~ "Version von isync heruntergeladen haben. Andernfalls kommt isync "
-#~ "durcheinander und lädt doppelte Nachrichten auf den IMAP-Server hoch."
-
-#~ msgid ""
-#~ "A suggested upgrade procedure is to use the isync version 0.7 to "
-#~ "synchronize any local changes in isync-managed mailboxes with your IMAP "
-#~ "server (if there are any local changes to synchronise), and then remove "
-#~ "the contents of the local mailboxes, before upgrading to version 0.8 or "
-#~ "above. Then run isync again to pull down the mail again. You must do this "
-#~ "manually; the Debian package will not do this for you."
-#~ msgstr ""
-#~ "Empfohlen wird eine Aktualisierung, bei der mit isync Version 0.7 alle "
-#~ "lokalen Änderungen (wenn es welche gibt) in den mit isync verwalteten "
-#~ "Postfächern auf den IMAP-Server synchronisiert werden. Dann löschen Sie "
-#~ "den Inhalt der lokalen Postfächer, bevor Sie auf die Version 0.8 oder "
-#~ "höher aktualisieren. Dann starten Sie isync wieder, um die E-Mails wieder "
-#~ "herunterzuladen. Das müssen Sie selbst tun; das Debian-Paket wird das "
-#~ "nicht für Sie erledigen."
-
-#~ msgid ""
-#~ "If you want, the upgrade of isync can be aborted to let you deal with "
-#~ "this issue. Or you can just suspend the upgrade or switch to a different "
-#~ "virtual console to take care of it. Do not continue past this point "
-#~ "before manually resolving this issue!"
-#~ msgstr ""
-#~ "Wenn Sie wollen, kann die Aktualisierung von isync angebrochen werden, "
-#~ "damit Sie das erledigen können. Oder Sie unterbrechen die Aktualisierung "
-#~ "oder schalten auf eine andere virtuelle Konsole, um sich darum zu "
-#~ "kümmern. Machen Sie an diesem Punkt nicht weiter, bevor Sie das Problem "
-#~ "behoben haben."
