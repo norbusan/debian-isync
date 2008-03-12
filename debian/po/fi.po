@@ -1,0 +1,33 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: isync 1.0.3-3\n"
+"Report-Msgid-Bugs-To: nboullis@debian.org\n"
+"POT-Creation-Date: 2006-12-05 00:29+0100\n"
+"PO-Revision-Date: 2008-02-27 20:56+0200\n"
+"Last-Translator: Esko Arajärvi <edu@iki.fi>\n"
+"Language-Team: Finnish <debian-l10n-finnish@lists.debian.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Poedit-Language: Finnish\n"
+"X-Poedit-Country: FINLAND\n"
+
+#. Type: note
+#. Description
+#: ../templates:1001
+msgid "isync won't refetch messages deleted locally"
+msgstr "isync ei hae paikallisesti poistettuja viestejä uudelleen"
+
+#. Type: note
+#. Description
+#: ../templates:1001
+msgid ""
+"Before version 1.0, isync refetched messages that were deleted locally.  "
+"Some users may rely on that bug.  Since 1.0, messages that are deleted "
+"locally will be deleted remotely as well - they will not be refetched.  "
+"Anyone expecting the old buggy behavior may lose data."
+msgstr ""
+"Ennen versiota 1.0 isync haki paikallisesti poistetut viestit uudelleen. "
+"Jotkut käyttäjät saattavat käyttää tätä virheellistä toimintatapaa. "
+"Versiosta 1.0 alkaen paikallisesti poistetut viestit poistetaan myös etänä. "
+"Vanhaa virheellistä toimintatapaa odottavat saattavat menettää tietoja."

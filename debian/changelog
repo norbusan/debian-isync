@@ -1,3 +1,19 @@
+isync (1.0.3-3.1) unstable; urgency=low
+
+  * Non-maintainer upload to fix pending l10n issues.
+  * Debconf translations:
+    - Portuguese. Closes: #418283
+    - Italian. Closes: #418246
+    - Dutch. Closes: #422244
+    - Spanish. Closes: #426184
+    - Finnish. Closes: #468214
+    - Galician. Closes: #470529
+  * [Lintian] Do not include debian revision in the build dependency for
+    libssl-dev
+  * [Lintian] No longer ignore errors from "make distclean"
+
+ -- Christian Perrier <bubulle@debian.org>  Wed, 12 Mar 2008 07:24:01 +0100
+
 isync (1.0.3-3) unstable; urgency=low
 
   * The "thanks Christian" release.
