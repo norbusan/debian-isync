@@ -865,7 +865,9 @@ parse_search( imap_t *imap, char *cmd )
 	int uid;
 
 	arg = next_arg( &cmd );
-	if (!arg || !(uid = atoi( arg ))) {
+	if (!arg)
+		return;
+	if (!(uid = atoi( arg ))) {
 		fprintf( stderr, "IMAP error: malformed SEARCH response\n" );
 		return;
 	}
@@ -1242,11 +1244,11 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 		info( "ok\n" );
 	} else {
 		memset( &addr, 0, sizeof(addr) );
-		addr.sin_port = htons( srvc->port ? srvc->port :
+		addr.sin_port = srvc->port ? htons( srvc->port ) :
 #ifdef HAVE_LIBSSL
-		                       srvc->use_imaps ? 993 :
+		                srvc->use_imaps ? htons( 993 ) :
 #endif
-		                       143 );
+		                htons( 143 );
 		addr.sin_family = AF_INET;
 
 		info( "Resolving %s... ", srvc->host );
@@ -1705,6 +1707,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep, int *err )
 		*serverapp = server;
 		serverapp = &server->next;
 		store = 0;
+		*storep = 0;
 	} else if (!strcasecmp( "IMAPStore", cfg->cmd )) {
 		store = nfcalloc( sizeof(*store) );
 		store->gen.driver = &imap_driver;

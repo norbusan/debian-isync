@@ -3,7 +3,7 @@ Section: mail
 Priority: optional
 Maintainer: Nicolas Boullis <nboullis@debian.org>
 Uploaders: Theodore Y. Ts'o <tytso@mit.edu>
-Standards-Version: 3.7.2
+Standards-Version: 3.7.3
 Build-Depends: libssl-dev (>= 0.9.8), debhelper (>= 4.1.16), dpkg-dev (>= 1.9.0), libdb4.4-dev, po-debconf
 
 Package: isync
@@ -11,10 +11,15 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Suggests: mutt
 Description: Synchronize a local maildir with a remote IMAP4 mailbox
- A command line application which synchronizes a local maildir-style
+ Command line applications which synchronize a local maildir-style
  mailbox with a remote IMAP4 mailbox, suitable for use in disconnected
  mode. Multiple copies of the remote IMAP4 mailbox can be maintained,
  and all flags and messages are synchronized.
+ .
+ The main application was much improved in version 1.0. Those
+ improvements lead to interface changes and the application being
+ renamed to mbsync. The application isync is now only a wrapper to
+ keep compatibility with earlier versions.
  .
  Features:
   * Fast mode for fetching new mail only

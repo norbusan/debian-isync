@@ -1,3 +1,18 @@
+isync (1.0.4-1) unstable; urgency=low
+
+  * The second "thanks Christian" release.
+  * New upstream release.
+    - Accept empty "* SEARCH" response. (Closes: #413336)
+    - Quote user name in generated config. (Closes: #456783)
+  * Explain the isync->mbsync change in the package description.
+    (Closes: #430648) 
+  * Fix the debian/watch file that lacked the version and action fields.
+  * Disable the upstream "deb-clean" stuff in the top-level Makefile, as
+    in breaks cleaning the build directory.
+  * Bump Standards-Version to 3.7.3. (No change required.)
+
+ -- Nicolas Boullis <nboullis@debian.org>  Sat, 03 May 2008 01:42:55 +0200
+
 isync (1.0.3-3.1) unstable; urgency=low
 
   * Non-maintainer upload to fix pending l10n issues.

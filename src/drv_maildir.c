@@ -161,15 +161,17 @@ maildir_list( store_t *gctx, string_list_t **retb )
 	}
 	*retb = 0;
 	while ((de = readdir( dir ))) {
+		const char *inbox = ((maildir_store_conf_t *)gctx->conf)->inbox;
+		int bl;
 		struct stat st;
 		char buf[PATH_MAX];
 
 		if (*de->d_name == '.')
 			continue;
-		nfsnprintf( buf, sizeof(buf), "%s%s/cur", gctx->conf->path, de->d_name );
+		bl = nfsnprintf( buf, sizeof(buf), "%s%s/cur", gctx->conf->path, de->d_name );
 		if (stat( buf, &st ) || !S_ISDIR(st.st_mode))
 			continue;
-		add_string_list( retb, de->d_name );
+		add_string_list( retb, !memcmp( buf, inbox, bl - 4 ) && !inbox[bl - 4] ? "INBOX" : de->d_name );
 	}
 	closedir (dir);
 
@@ -497,7 +499,7 @@ maildir_scan( maildir_store_t *ctx, msglist_t *msglist )
 				fputs( "Maildir error: db_create() failed\n", stderr );
 				return DRV_BOX_BAD;
 			}
-			if (tdb->open( tdb, 0, 0, 0, DB_HASH, DB_CREATE, 0 )) {
+			if ((tdb->open)( tdb, 0, 0, 0, DB_HASH, DB_CREATE, 0 )) {
 				fputs( "Maildir error: tdb->open() failed\n", stderr );
 				tdb->close( tdb, 0 );
 				return DRV_BOX_BAD;
@@ -781,7 +783,7 @@ maildir_select( store_t *gctx, int minuid, int maxuid, int *excs, int nexcs )
 			fputs( "Maildir error: db_create() failed\n", stderr );
 			goto bork;
 		}
-		if ((ret = ctx->db->open( ctx->db, 0, uvpath, 0, DB_HASH, DB_CREATE, 0 ))) {
+		if ((ret = (ctx->db->open)( ctx->db, 0, uvpath, 0, DB_HASH, DB_CREATE, 0 ))) {
 			ctx->db->err( ctx->db, ret, "Maildir error: db->open(%s)", uvpath );
 		  dbork:
 			ctx->db->close( ctx->db, 0 );
