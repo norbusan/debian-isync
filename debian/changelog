@@ -1,3 +1,10 @@
+isync (1.0.4-2) unstable; urgency=low
+
+  * Change the libdb4.4-dev build-dependency to libdb-dev. Thanks Luk for
+    pointing this. (Closes: #499165)
+
+ -- Nicolas Boullis <nboullis@debian.org>  Wed, 17 Sep 2008 23:58:58 +0200
+
 isync (1.0.4-1) unstable; urgency=low
 
   * The second "thanks Christian" release.
