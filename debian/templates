@@ -1,7 +1,0 @@
-Template: isync/upgrade_1.0
-Type: note
-_Description: isync won't refetch messages deleted locally
- Before version 1.0, isync refetched messages that were deleted
- locally.  Some users may rely on that bug.  Since 1.0, messages that
- are deleted locally will be deleted remotely as well - they will not
- be refetched.  Anyone expecting the old buggy behavior may lose data.
