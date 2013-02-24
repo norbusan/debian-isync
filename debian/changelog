@@ -1,3 +1,12 @@
+isync (1.0.4-2.2) unstable; urgency=low
+
+  * Non-maintainer upload.
+  * Apply upstream patch for CVE-2013-0289.
+    Fix incorrect server's SSL x509.v3 certificate validation when
+    performing IMAP synchronization. (Closes: #701052)
+
+ -- Salvatore Bonaccorso <carnil@debian.org>  Sun, 24 Feb 2013 09:27:55 +0100
+
 isync (1.0.4-2.1) unstable; urgency=low
 
   * Non-maintainer upload.
