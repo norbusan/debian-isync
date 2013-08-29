@@ -2,6 +2,9 @@
 #   Values here are used as defaults for any following Mailbox section that
 #   doesn't specify it.
 
+# SSL server certificate file
+CertificateFile /etc/ssl/certs/ca-certificates.crt
+
 # by default, expunge deleted messages (same as -e on command line)
 Expunge yes
 
@@ -40,3 +43,13 @@ Host host.play.com
 # use a non-default port for this connection
 Port 6789
 Alias personal
+
+
+###
+### Remote mailbox over a SSH tunnel
+###
+
+Mailbox /home/me/Mail/remote
+Host host.remote.com
+Tunnel "ssh -q host.remote.com /usr/sbin/imapd"
+Alias remote

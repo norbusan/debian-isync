@@ -1,7 +1,8 @@
-/* $Id: maildir.c,v 1.14 2001/11/20 18:06:09 me Exp $
+/* $Id: maildir.c,v 1.27 2003/05/07 00:06:37 ossi Exp $
  *
  * isync - IMAP4 to maildir mailbox synchronizer
- * Copyright (C) 2000-1 Michael R. Elkins <me@mutt.org>
+ * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
+ * Copyright (C) 2002-2003 Oswald Buddenhagen <ossi@users.sf.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -16,7 +17,13 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * As a special exception, isync may be linked with the OpenSSL library,
+ * despite that library's more restrictive license.
  */
+
+#include "isync.h"
+#include "dotlock.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -28,35 +35,6 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <time.h>
-#include "isync.h"
-
-static int
-do_lock (int fd, int flag)
-{
-    struct flock lck;
-    struct stat sb;
-
-    if (fstat (fd, &sb))
-    {
-	perror ("fstat");
-	return -1;
-    }
-
-    memset (&lck, 0, sizeof (lck));
-    lck.l_type = flag;
-    lck.l_whence = SEEK_SET;
-    lck.l_start = 0;
-    lck.l_len = sb.st_size;
-
-    if (fcntl (fd, F_SETLK, &lck))
-    {
-	perror ("fcntl");
-	close (fd);
-	return -1;
-    }
-
-    return 0;
-}
 
 /* 2,<flags> */
 static void
@@ -80,15 +58,21 @@ parse_info (message_t * m, char *s)
     }
 }
 
-static unsigned int
-read_uid (const char *path, const char *file)
+/*
+ * There are three possible results of this function:
+ * >1	uid was already seen
+ * 0	uid was not yet seen
+ * -1	unable to read uid because of some other error
+ */
+
+static int
+read_uid (const char *path, const char *file, unsigned int *uid /* out */)
 {
     char full[_POSIX_PATH_MAX];
     int fd;
-    int ret;
+    int ret = -1;
     int len;
-    char buf[64];
-    unsigned int uid = 0;
+    char buf[64], *ptr;
 
     snprintf (full, sizeof (full), "%s/%s", path, file);
     fd = open (full, O_RDONLY);
@@ -96,30 +80,31 @@ read_uid (const char *path, const char *file)
     {
 	if (errno != ENOENT)
 	{
-	    perror ("open");
+	    perror (full);
 	    return -1;
 	}
 	return 0;		/* doesn't exist */
     }
-    ret = do_lock (fd, F_RDLCK);
-    if (!ret)
+    len = read (fd, buf, sizeof (buf) - 1);
+    if (len == -1)
+	perror ("read");
+    else
     {
-	len = read (fd, buf, sizeof (buf) - 1);
-	if (len == -1)
-	    ret = -1;
-	else
-	{
-	    buf[len] = 0;
-	    uid = atol (buf);
-	}
+	buf[len] = 0;
+	errno  = 0;
+	*uid = strtoul (buf, &ptr, 10);
+	if (errno)
+	  perror ("strtoul");
+	else if (ptr && *ptr == '\n')
+	  ret = 1;
+	/* else invalid value */
     }
-    ret |= do_lock (fd, F_UNLCK);
     close (fd);
-    return ret ? (unsigned int) ret : uid;
-
+    return ret;
 }
 
-/* open a maildir mailbox.
+/*
+ * open a maildir mailbox.
  * if OPEN_FAST is set, we just check to make
  * sure its a valid mailbox and don't actually parse it.  any IMAP messages
  * with the \Recent flag set are guaranteed not to be in the mailbox yet,
@@ -141,8 +126,10 @@ maildir_open (const char *path, int flags)
     struct stat sb;
     const char *subdirs[] = { "cur", "new", "tmp" };
     int i;
+    datum key;
 
     m = calloc (1, sizeof (mailbox_t));
+    m->lockfd = -1;
     /* filename expansion happens here, not in the config parser */
     m->path = expand_strdup (path);
 
@@ -154,9 +141,7 @@ maildir_open (const char *path, int flags)
 	    {
 		fprintf (stderr, "ERROR: mkdir %s: %s (errno %d)\n",
 			 m->path, strerror (errno), errno);
-		free (m->path);
-		free (m);
-		return NULL;
+		goto err;
 	    }
 
 	    for (i = 0; i < 3; i++)
@@ -166,9 +151,7 @@ maildir_open (const char *path, int flags)
 		{
 		    fprintf (stderr, "ERROR: mkdir %s: %s (errno %d)\n",
 			     buf, strerror (errno), errno);
-		    free (m->path);
-		    free (m);
-		    return NULL;
+		    goto err;
 		}
 	    }
 
@@ -177,9 +160,7 @@ maildir_open (const char *path, int flags)
 	{
 	    fprintf (stderr, "ERROR: stat %s: %s (errno %d)\n", m->path,
 		     strerror (errno), errno);
-	    free (m->path);
-	    free (m);
-	    return NULL;
+	    goto err;
 	}
     }
     else
@@ -195,28 +176,36 @@ maildir_open (const char *path, int flags)
 		fprintf (stderr,
 			 "ERROR: %s does not appear to be a valid maildir style mailbox\n",
 			 m->path);
-		free (m->path);
-		free (m);
-		return 0;
+		goto err;
 	    }
 	}
     }
 
+    /*
+     * we need a mutex on the maildir because of the state files that isync
+     * uses.
+     */
+    snprintf (buf, sizeof (buf), "%s/isynclock", m->path);
+    if (dotlock_lock (buf, &m->lockfd))
+	goto err;
+
     /* check for the uidvalidity value */
-    m->uidvalidity = read_uid (m->path, "isyncuidvalidity");
-    if (m->uidvalidity == (unsigned int) -1)
-    {
-	free (m->path);
-	free (m);
-	return NULL;
-    }
+    i = read_uid (m->path, "isyncuidvalidity", &m->uidvalidity);
+    if (i == -1)
+      goto err;
+    else if (i > 0)
+      m->uidseen = 1;
 
     /* load the current maxuid */
-    if ((m->maxuid = read_uid (m->path, "isyncmaxuid")) == (unsigned int) -1)
+    if (read_uid (m->path, "isyncmaxuid", &m->maxuid) == -1)
+	goto err;
+
+    snprintf (buf, sizeof (buf), "%s/isyncuidmap", m->path);
+    m->db = dbm_open (buf, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (m->db == NULL)
     {
-	free (m->path);
-	free (m);
-	return NULL;
+	fputs ("ERROR: unable to open UID db\n", stderr);
+	goto err;
     }
 
     if (flags & OPEN_FAST)
@@ -231,10 +220,8 @@ maildir_open (const char *path, int flags)
 	d = opendir (buf);
 	if (!d)
 	{
-	    free (m->path);
-	    free (m);
 	    perror ("opendir");
-	    return 0;
+	    goto err;
 	}
 	while ((e = readdir (d)))
 	{
@@ -247,40 +234,22 @@ maildir_open (const char *path, int flags)
 	    p->flags = 0;
 	    p->new = (count == 0);
 
-	    /* filename format is something like:
-	     * <unique-prefix>,U=<n>:2,<flags>
-	     * This is completely non-standard, but in order for mail
-	     * clients to understand the flags, we have to use the
-	     * standard :info as described by the qmail spec
+	    /* determine the UID for this message.  The basename (sans
+	     * flags) is used as the key in the db
 	     */
-	    s = strstr (p->file, ",U=");
-	    if (!s)
-		s = strstr (p->file, "UID");
-	    if (!s)
-		puts ("Warning, no UID for message");
-	    else
+	    key.dptr = p->file;
+	    s = strchr (key.dptr, ':');
+	    key.dsize = s ? (size_t) (s - key.dptr) : strlen (key.dptr);
+	    key = dbm_fetch (m->db, key);
+	    if (key.dptr)
 	    {
-		p->uid = strtol (s + 3, &s, 10);
+		p->uid = *(int *) key.dptr;
 		if (p->uid > m->maxuid)
-		{
 		    m->maxuid = p->uid;
-		    m->maxuidchanged = 1;
-		}
-		/* Courier-IMAP names it files
-		 *      unique,S=<size>:info
-		 * so we need to put the UID before the size, hence here
-		 * we check for a comma as a valid terminator as well,
-		 * since the format will be
-		 *      unique,U=<uid>,S=<size>:info
-		 */
-		if (*s && *s != ':' && *s != ',')
-		{
-		    puts ("Warning, unable to parse UID");
-		    p->uid = -1;	/* reset */
-		}
 	    }
+	    else /* XXX remove. every locally generated message triggers this */
+		puts ("Warning, no UID for message");
 
-	    s = strchr (p->file, ':');
 	    if (s)
 		parse_info (p, s + 1);
 	    if (p->flags & D_DELETED)
@@ -290,6 +259,14 @@ maildir_open (const char *path, int flags)
 	closedir (d);
     }
     return m;
+
+  err:
+    if (m->db)
+	dbm_close (m->db);
+    dotlock_unlock (&m->lockfd);
+    free (m->path);
+    free (m);
+    return NULL;
 }
 
 /* permanently remove messages from a maildir mailbox.  if `dead' is nonzero,
@@ -300,6 +277,8 @@ maildir_expunge (mailbox_t * mbox, int dead)
 {
     message_t **cur = &mbox->msgs;
     message_t *tmp;
+    char *s;
+    datum key;
     char path[_POSIX_PATH_MAX];
 
     while (*cur)
@@ -308,11 +287,16 @@ maildir_expunge (mailbox_t * mbox, int dead)
 	    (dead && (*cur)->dead))
 	{
 	    tmp = *cur;
-	    *cur = (*cur)->next;
 	    snprintf (path, sizeof (path), "%s/%s/%s",
 		      mbox->path, tmp->new ? "new" : "cur", tmp->file);
 	    if (unlink (path))
-		perror ("unlink");
+		perror (path);
+	    /* remove the message from the UID map */
+	    key.dptr = tmp->file;
+	    s = strchr (key.dptr, ':');
+	    key.dsize = s ? (size_t) (s - key.dptr) : strlen (key.dptr);
+	    dbm_delete (mbox->db, key);
+	    *cur = (*cur)->next;
 	    free (tmp->file);
 	    free (tmp);
 	}
@@ -322,66 +306,34 @@ maildir_expunge (mailbox_t * mbox, int dead)
     return 0;
 }
 
-static int
-update_maxuid (mailbox_t * mbox)
+int
+maildir_update_maxuid (mailbox_t * mbox)
 {
     int fd;
     char buf[64];
     size_t len;
-    unsigned int uid;
     char path[_POSIX_PATH_MAX];
     int ret = 0;
 
     snprintf (path, sizeof (path), "%s/isyncmaxuid", mbox->path);
-    fd = open (path, O_RDWR | O_CREAT, 0600);
+    fd = open (path, O_WRONLY | O_CREAT, 0600);
     if (fd == -1)
     {
 	perror ("open");
 	return -1;
     }
 
-    /* lock the file */
-    if (do_lock (fd, F_WRLCK))
+    /* write out the file */
+    snprintf (buf, sizeof (buf), "%u\n", mbox->maxuid);
+    len = write (fd, buf, strlen (buf));
+    if (len == (size_t) - 1)
     {
-	close (fd);
-	return -1;
-    }
-
-    /* read the file again just to make sure it wasn't updated while
-     * we were doing something else
-     */
-    len = read (fd, buf, sizeof (buf) - 1);
-    buf[len] = 0;
-    uid = atol (buf);
-    if (uid > mbox->maxuid)
-    {
-	puts ("Error, maxuid is now higher (fatal)");
+	perror ("write");
 	ret = -1;
     }
 
-    if (!ret)
-    {
-	/* rewind */
-	lseek (fd, 0, SEEK_SET);
-
-	/* write out the file */
-	snprintf (buf, sizeof (buf), "%u\n", mbox->maxuid);
-	len = write (fd, buf, strlen (buf));
-	if (len == (size_t) - 1)
-	{
-	    perror ("write");
-	    ret = -1;
-	}
-	else
-	{
-	    ret = ftruncate (fd, len);
-	    if (ret)
-		perror ("ftruncate");
-	}
-    }
-
-    ret |= do_lock (fd, F_UNLCK);
-    ret |= close (fd);
+    if (close (fd))
+	ret = -1;
 
     return ret;
 }
@@ -394,7 +346,7 @@ maildir_clean_tmp (const char *mbox)
     char path[_POSIX_PATH_MAX];
     DIR *dirp;
     struct dirent *entry;
-    struct stat info;
+    struct stat st;
     time_t now;
 
     snprintf (path, sizeof (path), "%s/tmp", mbox);
@@ -412,10 +364,10 @@ maildir_clean_tmp (const char *mbox)
     while ((entry = readdir (dirp)))
     {
 	snprintf (path, sizeof (path), "%s/tmp/%s", mbox, entry->d_name);
-	if (stat (path, &info))
+	if (stat (path, &st))
 	    fprintf (stderr, "maildir_clean_tmp: stat: %s: %s (errno %d)\n",
 		     path, strerror (errno), errno);
-	else if (S_ISREG (info.st_mode) && now - info.st_ctime >= _24_HOURS)
+	else if (S_ISREG (st.st_mode) && now - st.st_ctime >= _24_HOURS)
 	{
 	    /* this should happen infrequently enough that it won't be
 	     * bothersome to the user to display when it occurs.
@@ -427,50 +379,17 @@ maildir_clean_tmp (const char *mbox)
 			 path, strerror (errno), errno);
 	}
     }
+    closedir(dirp);
 }
 
-int
+void
 maildir_close (mailbox_t * mbox)
 {
-    message_t *cur = mbox->msgs;
-    char path[_POSIX_PATH_MAX];
-    char oldpath[_POSIX_PATH_MAX];
-    char *p;
-    int ret = 0;
+    if (mbox->db)
+	dbm_close (mbox->db);
 
-    if (mbox->changed)
-    {
-	for (; cur; cur = cur->next)
-	{
-	    if (cur->changed)
-	    {
-		/* generate old path */
-		snprintf (oldpath, sizeof (oldpath), "%s/%s/%s",
-			  mbox->path, cur->new ? "new" : "cur", cur->file);
-
-		/* truncate old flags (if present) */
-		p = strchr (cur->file, ':');
-		if (p)
-		    *p = 0;
-
-		/* generate new path - always put this in the cur/ directory
-		 * because its no longer new
-		 */
-		snprintf (path, sizeof (path), "%s/cur/%s:2,%s%s%s%s",
-			  mbox->path,
-			  cur->file, (cur->flags & D_FLAGGED) ? "F" : "",
-			  (cur->flags & D_ANSWERED) ? "R" : "",
-			  (cur->flags & D_SEEN) ? "S" : "",
-			  (cur->flags & D_DELETED) ? "T" : "");
-
-		if (rename (oldpath, path))
-		    perror ("rename");
-	    }
-	}
-    }
-
-    if (mbox->maxuidchanged)
-	ret = update_maxuid (mbox);
+    /* release the mutex on the mailbox */
+    dotlock_unlock (&mbox->lockfd);
 
     /* per the maildir(5) specification, delivery agents are supposed to
      * set a 24-hour timer on items placed in the `tmp' directory.
@@ -481,8 +400,6 @@ maildir_close (mailbox_t * mbox)
     free_message (mbox->msgs);
     memset (mbox, 0xff, sizeof (mailbox_t));
     free (mbox);
-
-    return ret;
 }
 
 int

@@ -1,0 +1,24 @@
+isync (0.9.2-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Oswald Buddenhagen <ossi@users.sf.net>  Sun, 07 Dec 2003 16:13:00 +0100
+
+isync (0.9.1-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Oswald Buddenhagen <ossi@users.sf.net>  Wed, 07 May 2003 01:22:00 +0200
+
+isync (0.9-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Oswald Buddenhagen <ossi@users.sf.net>  Mon, 05 May 2003 20:15:00 +0200
+
+isync (0.8-1) unstable; urgency=low
+
+  * Initial Release.
+
+ -- Michael Elkins <me@mutt.org>  Wed, 16 Jan 2002 13:36:52 -0800
+

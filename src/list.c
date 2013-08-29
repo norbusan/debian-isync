@@ -1,7 +1,7 @@
-/* $Id: list.c,v 1.3 2001/11/19 19:41:14 me Exp $
+/* $Id: list.c,v 1.7 2003/05/07 00:06:37 ossi Exp $
  *
  * isync - IMAP4 to maildir mailbox synchronizer
- * Copyright (C) 2000-1 Michael R. Elkins <me@mutt.org>
+ * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -16,12 +16,16 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * As a special exception, isync may be linked with the OpenSSL library,
+ * despite that library's more restrictive license.
  */
+
+#include "isync.h"
 
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-#include "isync.h"
 
 static char *
 skip_string (char *s)

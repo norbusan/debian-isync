@@ -5,9 +5,10 @@
 |_|___/\__, |_| |_|\___|
        |___/            
 isync - IMAP4 to maildir mailbox synchronization program
-http://www.sigpipe.org:8080/isync/
+http://isync.sf.net/
 
 Author: Michael Elkins <me@mutt.org>
+Current maintainer: Oswald Buddenhagen <ossi@users.sf.net>
 
 ``isync'' is a command line application which synchronizes a local
 maildir-style mailbox with a remote IMAP4 mailbox, suitable for use in
@@ -29,12 +30,13 @@ maintained, and all flags are synchronized.
 	* Microsoft Exchange 2000 IMAP4rev1 server version 6.0.4417.0
 	* Courier-IMAP 1.2.3
 	* WU-IMAP 2000
+	* Domino IMAP4 Server Release 5.0.8
 
 * Platforms
 
-	``isync'' has successfully be compiled under:
+	``isync'' has successfully been compiled on:
 
-	* Linux 2.2.18
+	* Linux
 	* Solaris 2.7
 	* OpenBSD 2.8
 	* FreeBSD 4.3
