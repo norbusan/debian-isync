@@ -44,10 +44,11 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 # include <openssl/ssl.h>
 # include <openssl/err.h>
 # include <openssl/hmac.h>
+# include <openssl/x509v3.h>
 #endif
 
 typedef struct imap_server_conf {
@@ -58,7 +59,7 @@ typedef struct imap_server_conf {
 	int port;
 	char *user;
 	char *pass;
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	char *cert_file;
 	unsigned use_imaps:1;
 	unsigned require_ssl:1;
@@ -91,7 +92,7 @@ typedef struct _list {
 
 typedef struct {
 	int fd;
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	SSL *ssl;
 	unsigned int use_ssl:1;
 #endif
@@ -116,7 +117,7 @@ typedef struct imap {
 	/* command queue */
 	int nexttag, num_in_progress, literal_pending;
 	struct imap_cmd *in_progress, **in_progress_append;
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	SSL_CTX *SSLContext;
 #endif
 	buffer_t buf; /* this is BIG, so put it last */
@@ -153,7 +154,7 @@ enum CAPABILITY {
 	UIDPLUS,
 	LITERALPLUS,
 	NAMESPACE,
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	CRAM,
 	STARTTLS,
 #endif
@@ -164,7 +165,7 @@ static const char *cap_list[] = {
 	"UIDPLUS",
 	"LITERAL+",
 	"NAMESPACE",
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	"AUTH=CRAM-MD5",
 	"STARTTLS",
 #endif
@@ -185,11 +186,67 @@ static const char *Flags[] = {
 	"Deleted",
 };
 
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
+
+static int
+host_matches( const char *host, const char *pattern )
+{
+	if (pattern[0] == '*' && pattern[1] == '.') {
+		pattern += 2;
+		if (!(host = strchr( host, '.' )))
+			return 0;
+		host++;
+	}
+
+	return *host && *pattern && !strcasecmp( host, pattern );
+}
+
+static int
+verify_hostname( X509 *cert, const char *hostname )
+{
+	int i, len, found;
+	X509_NAME *subj;
+	STACK_OF(GENERAL_NAME) *subj_alt_names;
+	char cname[1000];
+
+	/* try the DNS subjectAltNames */
+	found = 0;
+	if ((subj_alt_names = X509_get_ext_d2i( cert, NID_subject_alt_name, NULL, NULL ))) {
+		int num_subj_alt_names = sk_GENERAL_NAME_num( subj_alt_names );
+		for (i = 0; i < num_subj_alt_names; i++) {
+			GENERAL_NAME *subj_alt_name = sk_GENERAL_NAME_value( subj_alt_names, i );
+			if (subj_alt_name->type == GEN_DNS &&
+			    strlen( (const char *)subj_alt_name->d.ia5->data ) == (size_t)subj_alt_name->d.ia5->length &&
+			    host_matches( hostname, (const char *)(subj_alt_name->d.ia5->data) ))
+			{
+				found = 1;
+				break;
+			}
+		}
+		sk_GENERAL_NAME_pop_free( subj_alt_names, GENERAL_NAME_free );
+	}
+	if (found)
+		return 0;
+
+	/* try the common name */
+	if (!(subj = X509_get_subject_name( cert ))) {
+		fprintf( stderr, "Error, cannot get certificate subject\n" );
+		return -1;
+	}
+	if ((len = X509_NAME_get_text_by_NID( subj, NID_commonName, cname, sizeof(cname) )) < 0) {
+		fprintf( stderr, "Error, cannot get certificate common name\n" );
+		return -1;
+	}
+	if (strlen( cname ) == (size_t)len && host_matches( hostname, cname ))
+		return 0;
+
+	fprintf( stderr, "Error, certificate owner does not match hostname %s\n", hostname );
+	return -1;
+}
 
 /* this gets called when a certificate is to be verified */
 static int
-verify_cert( SSL *ssl )
+verify_cert( SSL *ssl, const char *hostname )
 {
 	X509 *cert;
 	int err;
@@ -204,12 +261,16 @@ verify_cert( SSL *ssl )
 	}
 
 	err = SSL_get_verify_result( ssl );
-	if (err == X509_V_OK)
-		return 0;
+	if (err != X509_V_OK) {
+		fprintf( stderr, "Error, can't verify certificate: %s (%d)\n",
+		         X509_verify_cert_error_string(err), err );
+		goto intcheck;
+	}
+	if (hostname && verify_hostname( cert, hostname ) < 0)
+		goto intcheck;
+	return 0;
 
-	fprintf( stderr, "Error, can't verify certificate: %s (%d)\n",
-	         X509_verify_cert_error_string(err), err );
-
+  intcheck:
 	X509_NAME_oneline( X509_get_subject_name( cert ), buf, sizeof(buf) );
 	info( "\nSubject: %s\n", buf );
 	X509_NAME_oneline( X509_get_issuer_name( cert ), buf, sizeof(buf) );
@@ -242,7 +303,7 @@ init_ssl_ctx( imap_store_t *ctx )
 	imap_t *imap = ctx->imap;
 	imap_store_conf_t *conf = (imap_store_conf_t *)ctx->gen.conf;
 	imap_server_conf_t *srvc = conf->server;
-	SSL_METHOD *method;
+	const SSL_METHOD *method;
 	int options = 0;
 
 	if (srvc->use_tlsv1 && !srvc->use_sslv2 && !srvc->use_sslv3)
@@ -278,7 +339,7 @@ init_ssl_ctx( imap_store_t *ctx )
 static void
 socket_perror( const char *func, Socket_t *sock, int ret )
 {
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	int err;
 
 	if (sock->use_ssl) {
@@ -312,7 +373,7 @@ static int
 socket_read( Socket_t *sock, char *buf, int len )
 {
 	int n =
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 		sock->use_ssl ? SSL_read( sock->ssl, buf, len ) :
 #endif
 		read( sock->fd, buf, len );
@@ -328,7 +389,7 @@ static int
 socket_write( Socket_t *sock, char *buf, int len )
 {
 	int n =
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 		sock->use_ssl ? SSL_write( sock->ssl, buf, len ) :
 #endif
 		write( sock->fd, buf, len );
@@ -349,7 +410,7 @@ socket_pending( Socket_t *sock )
 		return -1;
 	if (num > 0)
 		return num;
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	if (sock->use_ssl)
 		return SSL_pending( sock->ssl );
 #endif
@@ -376,7 +437,7 @@ buffer_gets( buffer_t * b, char **s )
 				n = b->bytes - start;
 
 				if (n)
-					memcpy( b->buf, b->buf + start, n );
+					memmove( b->buf, b->buf + start, n );
 				b->offset -= start;
 				b->bytes = n;
 				start = 0;
@@ -817,7 +878,7 @@ static int
 parse_response_code( imap_store_t *ctx, struct imap_cmd_cb *cb, char *s )
 {
 	imap_t *imap = ctx->imap;
-	char *arg, *p;
+	char *arg, *earg, *p;
 
 	if (*s != '[')
 		return RESP_OK;		/* no response code */
@@ -829,12 +890,14 @@ parse_response_code( imap_store_t *ctx, struct imap_cmd_cb *cb, char *s )
 	*p++ = 0;
 	arg = next_arg( &s );
 	if (!strcmp( "UIDVALIDITY", arg )) {
-		if (!(arg = next_arg( &s )) || !(ctx->gen.uidvalidity = atoi( arg ))) {
+		if (!(arg = next_arg( &s )) ||
+		    (ctx->gen.uidvalidity = strtoll( arg, &earg, 10 ), *earg))
+		{
 			fprintf( stderr, "IMAP error: malformed UIDVALIDITY status\n" );
 			return RESP_BAD;
 		}
 	} else if (!strcmp( "UIDNEXT", arg )) {
-		if (!(arg = next_arg( &s )) || !(imap->uidnext = atoi( arg ))) {
+		if (!(arg = next_arg( &s )) || (imap->uidnext = strtol( arg, &p, 10 ), *p)) {
 			fprintf( stderr, "IMAP error: malformed NEXTUID status\n" );
 			return RESP_BAD;
 		}
@@ -847,7 +910,8 @@ parse_response_code( imap_store_t *ctx, struct imap_cmd_cb *cb, char *s )
 		for (; isspace( (unsigned char)*p ); p++);
 		fprintf( stderr, "*** IMAP ALERT *** %s\n", p );
 	} else if (cb && cb->ctx && !strcmp( "APPENDUID", arg )) {
-		if (!(arg = next_arg( &s )) || !(ctx->gen.uidvalidity = atoi( arg )) ||
+		if (!(arg = next_arg( &s )) ||
+		    (ctx->gen.uidvalidity = strtoll( arg, &earg, 10 ), *earg) ||
 		    !(arg = next_arg( &s )) || !(*(int *)cb->ctx = atoi( arg )))
 		{
 			fprintf( stderr, "IMAP error: malformed APPENDUID status\n" );
@@ -1100,7 +1164,7 @@ start_tls( imap_store_t *ctx )
 	}
 
 	/* verify the server certificate */
-	if (verify_cert( imap->buf.sock.ssl ))
+	if (verify_cert( imap->buf.sock.ssl, ((imap_store_conf_t *)ctx->gen.conf)->server->host ))
 		return 1;
 
 	imap->buf.sock.use_ssl = 1;
@@ -1196,7 +1260,7 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 	struct hostent *he;
 	struct sockaddr_in addr;
 	int s, a[2], preauth;
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	int use_ssl;
 #endif
 
@@ -1216,7 +1280,7 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 	imap->in_progress_append = &imap->in_progress;
 
 	/* open connection to IMAP server */
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	use_ssl = 0;
 #endif
 
@@ -1274,10 +1338,10 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 		imap->buf.sock.fd = s;
 	}
 
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	if (srvc->use_imaps) {
 		if (start_tls( ctx ))
-			goto bail;
+			goto ssl_bail;
 		use_ssl = 1;
 	}
 #endif
@@ -1304,14 +1368,14 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 		goto bail;
 
 	if (!preauth) {
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 		if (!srvc->use_imaps && (srvc->use_sslv2 || srvc->use_sslv3 || srvc->use_tlsv1)) {
 			/* always try to select SSL support if available */
 			if (CAP(STARTTLS)) {
 				if (imap_exec( ctx, 0, "STARTTLS" ) != RESP_OK)
 					goto bail;
 				if (start_tls( ctx ))
-					goto bail;
+					goto ssl_bail;
 				use_ssl = 1;
 
 				if (imap_exec( ctx, 0, "CAPABILITY" ) != RESP_OK)
@@ -1349,7 +1413,7 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 			 */
 			srvc->pass = nfstrdup( arg );
 		}
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 		if (CAP(CRAM)) {
 			struct imap_cmd_cb cb;
 
@@ -1368,7 +1432,7 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 				fprintf( stderr, "Skipping account %s@%s, server forbids LOGIN\n", srvc->user, srvc->host );
 				goto bail;
 			}
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 			if (!use_ssl)
 #endif
 				warn( "*** IMAP Warning *** Password is being sent in the clear\n" );
@@ -1396,6 +1460,12 @@ imap_open_store( store_conf_t *conf, store_t *oldctx )
 	ctx->trashnc = 1;
 	return (store_t *)ctx;
 
+#ifdef HAVE_LIBSSL
+  ssl_bail:
+	/* This avoids that we try to send LOGOUT to an unusable socket. */
+	close( imap->buf.sock.fd );
+	imap->buf.sock.fd = -1;
+#endif
   bail:
 	imap_close_store( &ctx->gen );
 	return 0;
@@ -1428,6 +1498,8 @@ imap_select( store_t *gctx, int minuid, int maxuid, int *excs, int nexcs )
 		prefix = ctx->prefix;
 	}
 
+	imap->uidnext = -1;
+
 	memset( &cb, 0, sizeof(cb) );
 	cb.create = (gctx->opts & OPEN_CREATE) != 0;
 	cb.trycreate = 1;
@@ -1453,7 +1525,7 @@ imap_select( store_t *gctx, int minuid, int maxuid, int *excs, int nexcs )
 				goto bail;
 		}
 		if (maxuid == INT_MAX)
-			maxuid = imap->uidnext ? imap->uidnext - 1 : 1000000000;
+			maxuid = imap->uidnext >= 0 ? imap->uidnext - 1 : 1000000000;
 		if (maxuid >= minuid &&
 		    (ret = imap_exec_b( ctx, 0, "UID FETCH %d:%d (UID%s%s)", minuid, maxuid,
 		                        (gctx->opts & OPEN_FLAGS) ? " FLAGS" : "",
@@ -1583,6 +1655,7 @@ imap_store_msg( store_t *gctx, msg_data_t *data, int *uid )
 			}
 		/* invalid message */
 		free( fmap );
+		fprintf( stderr, "IMAP warning: storing message with incomplete header.\n" );
 		return DRV_MSG_BAD;
 	 mktid:
 		for (j = 0; j < TUIDL; j++)
@@ -1719,7 +1792,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep, int *err )
 	} else
 		return 0;
 
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 	/* this will probably annoy people, but its the best default just in
 	 * case people forget to turn it on
 	 */
@@ -1730,7 +1803,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep, int *err )
 	while (getcline( cfg ) && cfg->cmd) {
 		if (!strcasecmp( "Host", cfg->cmd )) {
 			/* The imap[s]: syntax is just a backwards compat hack. */
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 			if (!memcmp( "imaps:", cfg->val, 6 )) {
 				cfg->val += 6;
 				server->use_imaps = 1;
@@ -1752,7 +1825,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep, int *err )
 			server->pass = nfstrdup( cfg->val );
 		else if (!strcasecmp( "Port", cfg->cmd ))
 			server->port = parse_int( cfg );
-#if HAVE_LIBSSL
+#ifdef HAVE_LIBSSL
 		else if (!strcasecmp( "CertificateFile", cfg->cmd )) {
 			server->cert_file = expand_strdup( cfg->val );
 			if (access( server->cert_file, R_OK )) {
@@ -1815,6 +1888,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep, int *err )
 		if (!store->server) {
 			store->server = nfmalloc( sizeof(sserver) );
 			memcpy( store->server, &sserver, sizeof(sserver) );
+			store->server->name = store->gen.name;
 		} else if (acc_opt) {
 			fprintf( stderr, "IMAP store '%s' has both Account and account-specific options\n", store->gen.name );
 			*err = 1;
