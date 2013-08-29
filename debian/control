@@ -13,20 +13,24 @@ Package: isync
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Suggests: mutt
-Description: Synchronize a local maildir with a remote IMAP4 mailbox
- Command line applications which synchronize a local maildir-style
- mailbox with a remote IMAP4 mailbox, suitable for use in disconnected
- mode. Multiple copies of the remote IMAP4 mailbox can be maintained,
- and all flags and messages are synchronized.
+Description: IMAP and MailDir mailbox synchronizer
+ mbsync/isync is a command line application which synchronizes mailboxes;
+ currently Maildir and IMAP4 mailboxes are supported. New messages, message
+ deletions and flag changes can be propagated both ways. isync is suitable
+ for use in IMAP-disconnected mode.
  .
- The main application was much improved in version 1.0. Those
- improvements lead to interface changes and the application being
- renamed to mbsync. The application isync is now only a wrapper to
- keep compatibility with earlier versions.
+ The main application was much improved in version 1.0. Those improvements
+ lead to interface changes and the application being renamed to mbsync. The
+ application isync is now only a wrapper to keep compatibility with earlier
+ versions.
  .
  Features:
-  * Fast mode for fetching new mail only
-  * Supports imaps: (port 993) TLS/SSL connections
-  * Supports STARTTLS (RFC2595) for confidentiality
-  * Supports NAMESPACE (RFC2342)
-  * Supports CRAM-MD5 (RFC2095) for authentication
+  * Fine-grained selection of synchronization operations to perform
+  * Synchronizes single mailboxes or entire mailbox collections
+  * Partial mirrors possible: keep only the latest messages locally
+  * Trash functionality: backup messages before removing them
+ IMAP features:
+  * Security: supports TLS/SSL via imaps: (port 993) and STARTTLS; CRAM-MD5
+    for authentication
+  * Supports NAMESPACE for simplified configuration
+  * Pipelining for maximum speed (currently only partially implemented)
