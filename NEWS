@@ -1,0 +1,58 @@
+[0.7]
+
+Added `MaxMessages' configuration option to allow tracking of only the most
+recently added message in the local mailbox.
+
+Added --create (-C) command line option to force creation of the local
+maildir-style mailbox if it doesn't already exist.
+
+[0.6]
+
+Added `Delete' configuration option to correspond to the -d command line
+option.
+
+Added -a (--all) command line option to synchronize all mailboxes.
+
+[0.5]
+
+Updated SSL support.
+
+Added CRAM authentication support.
+
+Added MailDir configuration option to specify the default location of local
+mailboxes when relative paths are used.
+
+Added support for uploading local messages to the IMAP server.
+
+Added CopyDeletedTo configuration option to cause isync to move deleted
+messages to a particular mailbox on the server when they are expunged.
+
+[0.4]
+
+Added MaxSize configuration option to limit downloading of new messages from
+the server to less than some threshold.
+
+More robust --fast option works without using \Recent flags, so the previous
+problem with multiple accesses killing these flags is no longer a problem.
+
+RFC2060 obsoleted RFC822.PEEK, use BODY.PEEK[] instead which does the same
+job.
+
+Don't need to request UID in a FETCH when doing UID FETCH (RFC2060 states
+that its automatically returned).
+
+[0.3]
+
+Fixed to clean up temp maildir files when the fetch of a new message failed.
+
+Fixed to not assume order of the flags returned by "UID FETCH"
+
+Added support for building RPMs.
+
+[0.2]
+
+SSL support added.
+
+[0.1]
+
+Initial release.
