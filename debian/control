@@ -5,6 +5,7 @@ Maintainer: Nicolas Boullis <nboullis@debian.org>
 Uploaders: Theodore Y. Ts'o <tytso@mit.edu>
 Standards-Version: 3.7.3
 Build-Depends: debhelper (>= 9),
+ autotools-dev,
  libdb-dev,
  libssl-dev
 
