@@ -62,7 +62,7 @@ deb-clean:
 	dh_clean -Xsrc/
 	fakeroot debian/rules unpatch
 
-# distdir distclean: deb-clean
+distdir distclean: deb-clean
 
 dist-hook:
 	find $(distdir)/debian \( -name .git -o -name .gitignore -o -name .#\*# -o -type l \) -print0 | xargs -0r rm -rf

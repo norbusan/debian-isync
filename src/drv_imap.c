@@ -244,62 +244,6 @@ verify_hostname( X509 *cert, const char *hostname )
 	return -1;
 }
 
-static int
-host_matches( const char *host, const char *pattern )
-{
-	if (pattern[0] == '*' && pattern[1] == '.') {
-		pattern += 2;
-		if (!(host = strchr( host, '.' )))
-			return 0;
-		host++;
-	}
-
-	return *host && *pattern && !strcasecmp( host, pattern );
-}
-
-static int
-verify_hostname( X509 *cert, const char *hostname )
-{
-	int i, len, found;
-	X509_NAME *subj;
-	STACK_OF(GENERAL_NAME) *subj_alt_names;
-	char cname[1000];
-
-	/* try the DNS subjectAltNames */
-	found = 0;
-	if ((subj_alt_names = X509_get_ext_d2i( cert, NID_subject_alt_name, NULL, NULL ))) {
-		int num_subj_alt_names = sk_GENERAL_NAME_num( subj_alt_names );
-		for (i = 0; i < num_subj_alt_names; i++) {
-			GENERAL_NAME *subj_alt_name = sk_GENERAL_NAME_value( subj_alt_names, i );
-			if (subj_alt_name->type == GEN_DNS &&
-			    strlen( (const char *)subj_alt_name->d.ia5->data ) == (size_t)subj_alt_name->d.ia5->length &&
-			    host_matches( hostname, (const char *)(subj_alt_name->d.ia5->data) ))
-			{
-				found = 1;
-				break;
-			}
-		}
-		sk_GENERAL_NAME_pop_free( subj_alt_names, GENERAL_NAME_free );
-	}
-	if (found)
-		return 0;
-
-	/* try the common name */
-	if (!(subj = X509_get_subject_name( cert ))) {
-		fprintf( stderr, "Error, cannot get certificate subject\n" );
-		return -1;
-	}
-	if ((len = X509_NAME_get_text_by_NID( subj, NID_commonName, cname, sizeof(cname) )) < 0) {
-		fprintf( stderr, "Error, cannot get certificate common name\n" );
-		return -1;
-	}
-	if (strlen( cname ) == (size_t)len && host_matches( hostname, cname ))
-		return 0;
-
-	fprintf( stderr, "Error, certificate owner does not match hostname %s\n", hostname );
-	return -1;
-}
-
 /* this gets called when a certificate is to be verified */
 static int
 verify_cert( SSL *ssl, const char *hostname )
