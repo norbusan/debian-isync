@@ -1,0 +1,653 @@
+Description: Fix typos and man errors
+Origin: vendor
+Forwarded: no
+Last-Update: 2013-08-29
+
+--- a/src/mbsync.1
++++ b/src/mbsync.1
+@@ -22,13 +22,13 @@
+ \" despite that library's more restrictive license.
+ ..
+ .TH mbsync 1 "2004 Mar 27"
+-..
++
+ .SH NAME
+ mbsync - synchronize IMAP4 and Maildir mailboxes
+-..
++
+ .SH SYNOPSIS
+ \fBmbsync\fR [\fIoptions\fR ...] {{\fIchannel\fR[\fB:\fIbox\fR[{\fB,\fR|\fB\\n\fR}...]]|\fIgroup\fR} ...|\fB-a\fR}
+-..
++
+ .SH DESCRIPTION
+ \fBmbsync\fR is a command line application which synchronizes mailboxes;
+ currently Maildir and IMAP4 mailboxes are supported.
+@@ -41,7 +41,7 @@
+ never happen, but see "Compatibility" in the README).
+ Synchronization state is kept in one local text file per mailbox pair;
+ multiple replicas of a mailbox can be maintained.
+-..
++
+ .SH OPTIONS
+ .TP
+ \fB-c\fR, \fB--config\fR \fIfile\fR
+@@ -84,7 +84,7 @@
+ \fB-q\fR, \fB--quiet\fR
+ Suppress informational messages.
+ If specified twice, suppress warning messages as well.
+-..
++
+ .SH CONFIGURATION
+ The configuration file is mandatory; \fBmbsync\fR will not run without it.
+ Lines starting with a hash mark (\fB#\fR) are comments and are ignored entirely.
+@@ -105,7 +105,7 @@
+ describes the connection part of remote Stores, so a server connection can be
+ shared between multiple Stores. A Group aggregates multiple Channels to
+ save typing on the command line.
+-..
++
+ .SS All Stores
+ These options can be used in all supported Store types.
+ .br
+@@ -114,7 +114,7 @@
+ .br
+ The special mailbox \fBINBOX\fR exists in every Store; its physical location
+ in the file system is Store type specific.
+-..
++
+ .TP
+ \fBPath\fR \fIpath\fR
+ The location of the Store in the (server's) file system.
+@@ -125,41 +125,41 @@
+ Note that you \fBmust\fR append a slash if you want to specify an entire
+ directory.
+ (Default: \fI""\fR)
+-..
++
+ .TP
+ \fBMaxSize\fR \fIsize\fR[\fBk\fR|\fBm\fR][\fBb\fR]
+ Messages larger than that will not be propagated into this Store.
+ This is useful for weeding out messages with large attachments.
+ \fBK\fR and \fBM\fR can be appended to the size to specify KiBytes resp.
+-MeBytes instead of bytes. \fBB\fR is accepted but superflous.
++MeBytes instead of bytes. \fBB\fR is accepted but superfluous.
+ If \fIsize\fR is 0, the maximum message size is \fBunlimited\fR.
+ (Default: \fI0\fR)
+-..
++
+ .TP
+ \fBMapInbox\fR \fImailbox\fR
+ Create a virtual mailbox (relative to \fBPath\fR), which is backed by
+ the \fBINBOX\fR. Makes sense in conjunction with \fBPatterns\fR in the
+ Channels section.
+-..
++
+ .TP
+ \fBTrash\fR \fImailbox\fR
+ Specifies a mailbox (relative to \fBPath\fR) to copy deleted messages to
+ prior to expunging. See \fBINHERENT PROBLEMS\fR below.
+ (Default: none)
+-..
++
+ .TP
+ \fBTrashNewOnly\fR \fIyes\fR|\fIno\fR
+ When trashing, copy only not yet propagated messages. This makes sense if the
+ remote Store has a \fBTrash\fR as well (with \fBTrashNewOnly\fR \fIno\fR).
+ (Default: \fIno\fR)
+-..
++
+ .TP
+ \fBTrashRemoteNew\fR \fIyes\fR|\fIno\fR
+ When expunging the remote Store, copy not yet propagated messages to this
+ Store's \fBTrash\fR. When using this, the remote Store does not need an own
+ \fBTrash\fR at all, yet all messages are archived.
+ (Default: \fIno\fR)
+-..
++
+ .SS Maildir Stores
+ The reference point for relative \fBPath\fRs is $HOME.
+ .P
+@@ -175,7 +175,7 @@
+ are used as keys into a Berkeley database named .isyncuidmap.db, which holds
+ the UID validity as well.
+ .br
+-The \fBnative\fR scheme is faster, more space efficient, endianess independent
++The \fBnative\fR scheme is faster, more space efficient, endianness independent
+ and "human readable", but will be disrupted if a message is copied from another
+ mailbox without getting a new file name; this would result in duplicated UIDs
+ sooner or later, which in turn results in a UID validity change, making
+@@ -187,59 +187,59 @@
+ \fBMutt\fR is known to work fine with both schemes.
+ .br
+ Use \fBmdconvert\fR to convert mailboxes from one scheme to the other.
+-..
++
+ .TP
+ \fBMaildirStore\fR \fIname\fR
+ Define the Maildir Store \fIname\fR, opening a section for its parameters.
+-..
++
+ .TP
+ \fBAltMap\fR \fIyes\fR|\fIno\fR
+ Use the \fBalternative\fR UID storage scheme for mailboxes in this Store.
+ This does not affect mailboxes that do already have a UID storage scheme;
+ use \fBmdconvert\fR to change it.
+ (Default: \fIno\fR)
+-..
++
+ .TP
+ \fBInbox\fR \fIpath\fR
+ The location of the \fBINBOX\fR. This is \fInot\fR relative to \fBPath\fR.
+ (Default: \fI~/Maildir\fR)
+-..
++
+ .SS IMAP4 Accounts
+ .TP
+ \fBIMAPAccount\fR \fIname\fR
+ Define the IMAP4 Account \fIname\fR, opening a section for its parameters.
+-..
++
+ .TP
+ \fBHost\fR \fIhost\fR
+ Specify the DNS name or IP address of the IMAP server.
+-..
++
+ .TP
+ \fBPort\fR \fIport\fR
+ Specify the TCP port number of the IMAP server.  (Default: 143 for IMAP,
+ 993 for IMAPS)
+-..
++
+ .TP
+ \fBUser\fR \fIusername\fR
+ Specify the login name on the IMAP server.  (Default: current local user)
+-..
++
+ .TP
+ \fBPass\fR \fIpassword\fR
+ Specify the password for \fIusername\fR on the IMAP server.
+ Note that this option is \fBNOT\fR required.
+ If no password is specified in the configuration file, \fBmbsync\fR
+ will prompt you for it.
+-..
++
+ .TP
+ \fBTunnel\fR \fIcommand\fR
+ Specify a command to run to establish a connection rather than opening a TCP
+ socket.  This allows you to run an IMAP session over an SSH tunnel, for
+-example.  This makes most other IMAPAccount options superflous.
+-..
++example.  This makes most other IMAPAccount options superfluous.
++
+ .TP
+ \fBRequireCRAM\fR \fIyes\fR|\fIno\fR
+ If set to \fIyes\fR, \fBmbsync\fR will abort the connection if no CRAM-MD5
+ authentication is possible.  (Default: \fIno\fR)
+-..
++
+ .TP
+ \fBUseIMAPS\fR \fIyes\fR|\fIno\fR
+ If set to \fIyes\fR, the default for \fBPort\fR is changed to 993 and
+@@ -248,34 +248,34 @@
+ .br
+ Note that modern servers support SSL on the regular IMAP port 143 via the
+ STARTTLS extension, which will be used automatically by default.
+-..
++
+ .TP
+ \fBRequireSSL\fR \fIyes\fR|\fIno\fR
+ \fBmbsync\fR will abort the connection if a TLS/SSL session cannot be
+ established with the IMAP server.  (Default: \fIyes\fR)
+-..
++
+ .TP
+ \fBCertificateFile\fR \fIpath\fR
+ File containing X.509 CA certificates used to verify server identities.
+ This option is \fImandatory\fR if SSL is used. See \fBSSL CERTIFICATES\fR below.
+-..
++
+ .TP
+ \fBUseSSLv2\fR \fIyes\fR|\fIno\fR
+ Use SSLv2 for communication with the IMAP server over SSL?
+ .br
+ Note that this option is deprecated for security reasons.
+ (Default: \fIno\fR)
+-..
++
+ .TP
+ \fBUseSSLv3\fR \fIyes\fR|\fIno\fR
+ Use SSLv3 for communication with the IMAP server over SSL?
+ (Default: \fIno\fR)
+-..
++
+ .TP
+ \fBUseTLSv1\fR \fIyes\fR|\fIno\fR
+ Use TLSv1 for communication with the IMAP server over SSL?
+ (Default: \fIyes\fR)
+-..
++
+ .SS IMAP Stores
+ The reference point for relative \fBPath\fRs is whatever the server likes it
+ to be; probably the user's $HOME or $HOME/Mail on that server. The location
+@@ -283,26 +283,26 @@
+ .TP
+ \fBIMAPStore\fR \fIname\fR
+ Define the IMAP4 Store \fIname\fR, opening a section for its parameters.
+-..
++
+ .TP
+ \fBAccount\fR \fIaccount\fR
+ Specify which IMAP4 Account to use. Instead of defining an Account and
+ referencing it here, it is also possible to specify all the Account options
+ directly in the Store's section - this makes sense if an Account is used for
+ one Store only anyway.
+-..
++
+ .TP
+ \fBUseNamespace\fR \fIyes\fR|\fIno\fR
+ Selects whether the server's first "personal" NAMESPACE should be prefixed to
+ mailbox names. Disabling this makes sense for some broken IMAP servers.
+ This option is meaningless if a \fBPath\fR was specified.
+ (Default: \fIyes\fR)
+-..
++
+ .SS Channels
+ .TP
+ \fBChannel\fR \fIname\fR
+ Define the Channel \fIname\fR, opening a section for its parameters.
+-..
++
+ .TP
+ {\fBMaster\fR|\fBSlave\fR} \fB:\fIstore\fB:\fR[\fImailbox\fR]
+ Specify the Master resp. Slave Store to be connected by this Channel.
+@@ -310,7 +310,7 @@
+ The \fImailbox\fR specification can be overridden by \fBPatterns\fR, which
+ in turn can be overridden by a mailbox list in a Channel reference (a Group
+ specification or the command line).
+-..
++
+ .TP
+ \fBPattern\fR[\fBs\fR] [\fB!\fR]\fIpattern\fR ...
+ Instead of synchronizing only one mailbox pair, synchronize all mailboxes
+@@ -321,13 +321,13 @@
+ (either by supplying multiple arguments or by using \fBPattern\fR multiple
+ times); later matches take precedence.
+ Example: "\fBPatterns\fR\ \fI%\ !Trash\fR"
+-..
++
+ .TP
+ \fBMaxSize\fR \fIsize\fR[\fBk\fR|\fBm\fR][\fBb\fR]
+ Analogous to the homonymous option in the Stores section, but applies equally
+ to Master and Slave. Note that this actually modifies the Stores, so take care
+ not to provide conflicting settings if you use the Stores in multiple Channels.
+-..
++
+ .TP
+ \fBMaxMessages\fR \fIcount\fR
+ Sets the maximum number of messages to keep in each Slave mailbox.
+@@ -339,7 +339,7 @@
+ be automatically deleted.
+ If \fIcount\fR is 0, the maximum number of messages is \fBunlimited\fR
+ (Default: \fI0\fR).
+-..
++
+ .TP
+ \fBSync\fR {\fINone\fR|[\fIPull\fR] [\fIPush\fR] [\fINew\fR] [\fIReNew\fR] [\fIDelete\fR] [\fIFlags\fR]|\fIFull\fR}
+ Select the synchronization operation(s) to perform:
+@@ -360,7 +360,7 @@
+ that Store is expunged.
+ .br
+ \fBFlags\fR - propagate flag changes. Note that Deleted/Trashed is a flag as
+-well; this is particularily interesting if you use \fBmutt\fR with the
++well; this is particularly interesting if you use \fBmutt\fR with the
+ maildir_trash option.
+ .br
+ \fBAll\fR (\fB--full\fR on the command line) - all of the above.
+@@ -394,24 +394,24 @@
+ Note that it is not allowed to assert a cell in two ways, e.g.
+ "\fBSync\fR\ \fBPullNew\fR\ \fBPull\fR" and
+ "\fBSync\fR\ \fBPullNew\fR\ \fBDelete\fR\ \fBPush\fR" induce error messages.
+-..
++
+ .TP
+ \fBCreate\fR {\fINone\fR|\fIMaster\fR|\fISlave\fR|\fIBoth\fR}
+ Automatically create missing mailboxes [on the Master/Slave].
+ Otherwise print an error message and skip that mailbox pair if a mailbox
+ does not exist.
+ (Global default: \fINone\fR)
+-..
++
+ .TP
+ \fBExpunge\fR {\fINone\fR|\fIMaster\fR|\fISlave\fR|\fIBoth\fR}
+ Permanently remove all messages [on the Master/Slave] marked for deletion.
+ (Global default: \fINone\fR)
+-..
++
+ .P
+ \fBSync\fR, \fBCreate\fR and \fBExpunge\fR can be used outside any section for
+ a global effect. The global settings are overridden by Channel-specific options,
+ which in turn are overridden by command line switches.
+-..
++
+ .TP
+ \fBSyncState\fR {\fB*\fR|\fIpath\fR}
+ Set the location of this Channel's synchronization state files. \fB*\fR means
+@@ -426,7 +426,7 @@
+ \fB:\fImaster\fB:\fImaster-box\fB_:\fIslave\fB:\fIslave-box\fR.
+ .br
+ (Global default: \fI~/.mbsync/\fR).
+-..
++
+ .SS Groups
+ .TP
+ \fBGroup\fR \fIname\fR [\fIchannel\fR[\fB:\fIbox\fR[\fB,\fR...]]] ...
+@@ -439,15 +439,15 @@
+ If you supply one or more \fIbox\fRes to a \fIchannel\fR, they will be used
+ instead of what is specified in the Channel. The same can be done on the command
+ line, except that there newlines can be used as mailbox name separators as well.
+-..
++
+ .TP
+ \fBChannel\fR[\fBs\fR] \fIchannel\fR[\fB:\fIbox\fR[\fB,\fR...]] ...
+ Add the specified channels to the group. This option can be specified multiple
+ times within a Group.
+-..
++
+ .SH SSL CERTIFICATES
+ [to be done]
+-..
++
+ .SH INHERENT PROBLEMS
+ Changes done after \fBmbsync\fR has retrieved the message list will not be
+ synchronised until the next time \fBmbsync\fR is invoked.
+@@ -456,7 +456,7 @@
+ lost if they are marked as deleted after the message list was retrieved but
+ before the mailbox is expunged. There is no risk as long as the IMAP mailbox
+ is not simultaneously accessed by \fBmbsync\fR and another mail client.
+-..
++
+ .SH FILES
+ .TP
+ .B ~/.mbsyncrc
+@@ -464,12 +464,12 @@
+ .TP
+ .B ~/.mbsync/
+ Directory containing synchronization state files
+-..
++
+ .SH SEE ALSO
+ mdconvert(1), isync(1), mutt(1), maildir(5)
+ .P
+ Up to date information on \fBmbsync\fR can be found at http://isync.sf.net/
+-..
++
+ .SH AUTHOR
+ Written by Michael R. Elkins <me@mutt.org>,
+ .br
+--- a/src/mdconvert.1
++++ b/src/mdconvert.1
+@@ -17,18 +17,18 @@
+ \"  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ ..
+ .TH mdconvert 1 "2004 Mar 27"
+-..
++
+ .SH NAME
+ mdconvert - Maildir mailbox UID storage scheme converter
+-..
++
+ .SH SYNOPSIS
+ \fBmdconvert\fR [\fIoptions\fR ...] \fImailbox\fR ...
+-..
++
+ .SH DESCRIPTION
+ \fBmdconvert\fR converts Maildir mailboxes between the two UID storage schemes
+ supported by \fBmbsync\fR. See \fBmbsync\fR's manual page for details on these
+ schemes.
+-..
++
+ .SH OPTIONS
+ .TP
+ \fB-a\fR, \fB--alt\fR
+@@ -43,9 +43,9 @@
+ .TP
+ \fB-v\fR, \fB--version\fR
+ Displays version information.
+-..
++
+ .SH SEE ALSO
+ mbsync(1)
+-..
++
+ .SH AUTHOR
+ Written and maintained by Oswald Buddenhagen <ossi@users.sf.net>.
+--- a/src/compat/isync.1
++++ b/src/compat/isync.1
+@@ -19,13 +19,13 @@
+ \"
+ ..
+ .TH isync 1 "2004 Mar 29"
+-..
++
+ .SH NAME
+ isync - synchronize IMAP4 and Maildir mailboxes
+-..
++
+ .SH SYNOPSIS
+ \fBisync\fR [\fIoptions\fR ...] {\fImailbox\fR ...|\fI-a\fR|\fI-l\fR}
+-..
++
+ .SH DESCRIPTION
+ \fBisync\fR is a command line application which synchronizes local
+ Maildir mailboxes with remote IMAP4 mailboxes, suitable for use in
+@@ -38,7 +38,7 @@
+ \fBmbsync\fR. If you were using \fBisync\fR version 0.8 or 0.9.x you might
+ want to use \fBmdconvert\fR to convert the mailboxes to the more efficient
+ \fBnative\fR UID storage scheme after migrating them.
+-..
++
+ .SH OPTIONS
+ .TP
+ \fB-c\fR, \fB--config\fR \fIfile\fR
+@@ -131,7 +131,7 @@
+ .TP
+ \fB-W\fR, \fB--writeto\fR \fIfile\fR
+ Like \fB-w\fR, but use the specified name for the new config file.
+-..
++
+ .SH CONFIGURATION
+ \fBisync\fR by default reads \fI~/.isyncrc\fR to load configuration data.
+ Each non-empty line of the configuration file that does not start with a
+@@ -141,7 +141,7 @@
+ \fBMailbox\fR \fIpath\fR
+ Defines a local Maildir mailbox.  All configuration commands following this
+ line, up until the next \fIMailbox\fR command, apply to this mailbox only.
+-..
++
+ .TP
+ \fBHost\fR [\fBimaps:\fR]\fIname\fR
+ Defines the DNS name or IP address of the IMAP server.  If the hostname is
+@@ -150,57 +150,57 @@
+ \fBafter\fR the \fBHost\fR command).
+ Note that modern servers support SSL on the default port 143.
+ \fBisync\fR will always attempt to use SSL if available.
+-..
++
+ .TP
+ \fBPort\fR \fIport\fR
+ Defines the TCP port number of the IMAP server (Default: 143 for imap,
+ 993 for imaps)
+-..
++
+ .TP
+ \fBBox\fR \fImailbox\fR
+ Defines the name of the remote IMAP mailbox associated with the local
+ Maildir mailbox (Default: INBOX)
+-..
++
+ .TP
+ \fBUser\fR \fIusername\fR
+ Defines the login name on the IMAP server (Default: current user)
+-..
++
+ .TP
+ \fBPass\fR \fIpassword\fR
+ Defines the password for \fIusername\fR on the IMAP server.
+ Note that this option is \fBNOT\fR required.
+ If no password is specified in the configuration file, \fBisync\fR
+ will prompt you for it.
+-..
++
+ .TP
+ \fBAlias\fR \fIstring\fR
+ Defines an alias for the mailbox which can be used as a shortcut on the
+ command line.
+-..
++
+ .TP
+ \fBCopyDeletedTo\fR \fImailbox\fR
+ Specifies the remote IMAP mailbox to copy deleted messages to prior to
+ expunging (Default: none).
+-..
++
+ .TP
+ \fBDelete\fR \fIyes\fR|\fIno\fR
+ Specifies whether message deletions are propagated.  (Default: no).
+ \fBNOTE:\fR  The \fI-d\fR command line option overrides this setting when 
+ set to \fIno\fR.
+-..
++
+ .TP
+ \fBExpunge\fR \fIyes\fR|\fIno\fR
+ Specifies whether deleted messages are expunged.  (Default: no).
+ \fBNOTE:\fR  The \fI-e\fR command line option overrides this setting when 
+ set to \fIno\fR.
+-..
++
+ .TP
+ \fBMailDir\fR \fIdirectory\fR
+ Specifies the location of your local mailboxes if a relative path is
+ specified in a \fIMailbox\fR command (Default: \fI~\fR).
+ \fBNOTE:\fR This directive is allowed only in the \fIglobal\fR
+ section (see below).
+-..
++
+ .TP
+ \fBFolder\fR \fIdirectory\fR/
+ Specifies the location of your IMAP mailboxes 
+@@ -209,7 +209,7 @@
+ a slash) to this specification.
+ \fBNOTE 2:\fR This directive is allowed only in the \fIglobal\fR
+ section (see below).
+-..
++
+ .TP
+ \fBMaxMessages\fR \fIcount\fR
+ Sets the number of messages \fBisync\fR should keep in the local copy of a
+@@ -222,14 +222,14 @@
+ automatically deleted.
+ If \fIcount\fR is 0, the maximum number of messages is \fBunlimited\fR.
+ (Default: 0)
+-..
++
+ .TP
+ \fBMaxSize\fR \fIbytes\fR
+ Messages larger than that many bytes will not be transferred over the wire.
+ This is useful for weeding out messages with large attachments.
+ If \fIbytes\fR is 0, the maximum file size is \fBunlimited\fR.
+ (Default: 0)
+-..
++
+ .TP
+ \fBTunnel\fR \fIcommand\fR
+ Specify a command to run to establish a connection rather than opening a TCP
+@@ -241,36 +241,36 @@
+ mailbox names. Disabling this makes sense for some broken IMAP servers.
+ This option is meaningless if a \fIFolder\fR was specified.
+ (Default: \fIyes\fR)
+-..
++
+ .TP
+ \fBRequireCRAM\fR \fIyes\fR|\fIno\fR
+ If set to \fIyes\fR, \fBisync\fR will abort the connection if no CRAM-MD5
+ authentication is possible.  (Default: \fIno\fR)
+-..
++
+ .TP
+ \fBRequireSSL\fR \fIyes\fR|\fIno\fR
+ \fBisync\fR will abort the connection if a TLS/SSL session cannot be
+ established with the IMAP server.  (Default: \fIyes\fR)
+-..
++
+ .TP
+ \fBCertificateFile\fR \fIpath\fR
+ File containing X.509 CA certificates used to verify server identities.
+-..
++
+ .TP
+ \fBUseSSLv2\fR \fIyes\fR|\fIno\fR
+ Should \fBisync\fR use SSLv2 for communication with the IMAP server over SSL?
+ (Default: \fIyes\fR if the imaps port is used, otherwise \fIno\fR)
+-..
++
+ .TP
+ \fBUseSSLv3\fR \fIyes\fR|\fIno\fR
+ Should \fBisync\fR use SSLv3 for communication with the IMAP server over SSL?
+ (Default: \fIyes\fR if the imaps port is used, otherwise \fIno\fR)
+-..
++
+ .TP
+ \fBUseTLSv1\fR \fIyes\fR|\fIno\fR
+ Should \fBisync\fR use TLSv1 for communication with the IMAP server over SSL?
+ (Default: \fIyes\fR)
+-..
++
+ .TP
+ \fBOneToOne\fR
+ \fBisync\fR will ignore any \fIMailbox\fR specifications and instead pick up
+@@ -278,14 +278,14 @@
+ them 1:1 onto each other according to their names.
+ \fBNOTE:\fR This directive is allowed only in the \fIglobal\fR
+ section (see below).
+-..
++
+ .TP
+ \fBInbox\fR \fImailbox\fR
+ Exception to the OneToOne mapping: the special IMAP mailbox \fIINBOX\fR
+ is mapped to the local \fImailbox\fR (relative to the \fIMailDir\fR).
+ \fBNOTE:\fR This directive is only meaningful in the \fIglobal\fR
+ section (see below).
+-..
++
+ .P
+ Configuration commands that appear prior to the first \fBMailbox\fR
+ command are considered to be \fIglobal\fR
+@@ -295,24 +295,24 @@
+ the first \fBMailbox\fR command, and then leave out the \fBUser\fR command 
+ in the sections for each mailbox.
+ \fBisync\fR will then use the global value by default.
+-..
++
+ .SH FILES
+ .TP
+ .B ~/.isyncrc
+ Default configuration file
+-..
++
+ .SH BUGS
+ The configuration file takes precedence over command line options.
+ .br
+ Use -c /dev/null to work around.
+ .P
+ See the \fBINHERENT PROBLEMS\fR section in the \fBmbsync\fR man page, too.
+-..
++
+ .SH SEE ALSO
+ mbsync(1), mdconvert(1), mutt(1), maildir(5)
+ .P
+ Up to date information on \fBisync\fR can be found at http://isync.sf.net/
+-..
++
+ .SH AUTHOR
+ Written by Michael R. Elkins <me@mutt.org>,
+ .br
