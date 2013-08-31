@@ -1,0 +1,26 @@
+Description: Don't install ChangeLog (already handled by dh_installchangelogs)
+Origin: vendor
+Forwarded: not-needed
+Author: Alessandro Ghedini <ghedo@debian.org>
+Reviewed-by: Alessandro Ghedini <ghedo@debian.org>
+Last-Update: 2013-08-31
+
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -77,4 +77,4 @@
+ 	CFLAGS="-O2 -mcpu=i686" rpm -ba --clean isync.spec
+ 
+ docdir = $(datadir)/doc/isync
+-doc_DATA = README TODO NEWS ChangeLog AUTHORS
++doc_DATA = README TODO NEWS AUTHORS
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -296,7 +296,7 @@
+         print $$log."\n"; \
+     }
+ 
+-doc_DATA = README TODO NEWS ChangeLog AUTHORS
++doc_DATA = README TODO NEWS AUTHORS
+ all: config.h
+ 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
+ 
