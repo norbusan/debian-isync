@@ -14,8 +14,7 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "isync.h"
@@ -29,13 +28,11 @@
 #include <limits.h>
 #include <pwd.h>
 #include <stdio.h>
-#include <errno.h>
 #include <string.h>
 #include <ctype.h>
 #include <dirent.h>
 
 #ifdef HAVE_GETOPT_LONG
-# define _GNU_SOURCE
 # include <getopt.h>
 struct option Opts[] = {
 	{"write", 0, NULL, 'w' },
@@ -60,6 +57,7 @@ struct option Opts[] = {
 	{"debug", 0, NULL, 'D'},
 	{"quiet", 0, NULL, 'q'},
 	{"user", 1, NULL, 'u'},
+	{"pass", 1, NULL, 'P'},
 	{"version", 0, NULL, 'v'},
 	{"verbose", 0, NULL, 'V'},
 	{0, 0, 0, 0}
@@ -79,7 +77,8 @@ usage( int code )
 	fputs(
 PACKAGE " " VERSION " - mbsync wrapper: IMAP4 to maildir synchronizer\n"
 "Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>\n"
-"Copyright (C) 2002-2004 Oswald Buddenhagen <ossi@users.sf.net>\n"
+"Copyright (C) 2002-2006,2008,2010-2012 Oswald Buddenhagen <ossi@users.sf.net>\n"
+"Copyright (C) 2004 Theodore Ts'o <tytso@mit.edu>\n"
 "usage:\n"
 " " PACKAGE " [ flags ] mailbox [mailbox ...]\n"
 " " PACKAGE " [ flags ] -a\n"
@@ -100,6 +99,7 @@ PACKAGE " " VERSION " - mbsync wrapper: IMAP4 to maildir synchronizer\n"
 "  -s, --host HOST	IMAP server address\n"
 "  -p, --port PORT	server IMAP port\n"
 "  -u, --user USER	IMAP user name\n"
+"  -P, --pass PASSWORD	IMAP password\n"
 "  -c, --config CONFIG	read an alternate config file (default: ~/.isyncrc)\n"
 "  -D, --debug		print debugging messages\n"
 "  -V, --verbose		verbose mode (display network traffic)\n"
@@ -182,7 +182,7 @@ main( int argc, char **argv )
 	maildir = "~";
 	xmaildir = Home;
 
-#define FLAGS "wW:alCLRc:defhp:qu:r:F:M:1I:s:vVD"
+#define FLAGS "wW:alCLRc:defhp:qu:P:r:F:M:1I:s:vVD"
 
 	mod = all = list = ops = writeout = Quiet = Verbose = Debug = 0;
 #ifdef HAVE_GETOPT_LONG
@@ -254,7 +254,7 @@ main( int argc, char **argv )
 			if (!strncasecmp( "imaps:", optarg, 6 )) {
 				global.use_imaps = 1;
 				global.port = 993;
-				global.use_sslv2 = 1;
+				global.use_sslv2 = 0;
 				global.use_sslv3 = 1;
 				optarg += 6;
 			}
@@ -266,11 +266,15 @@ main( int argc, char **argv )
 			global.user = optarg;
 			mod = 1;
 			break;
+		case 'P':
+			global.pass = optarg;
+			mod = 1;
+			break;
 		case 'D':
 			Debug = 1;
 			break;
 		case 'V':
-			Verbose = 1;
+			Verbose++;
 			break;
 		case 'q':
 			Quiet++;
@@ -331,7 +335,7 @@ main( int argc, char **argv )
 			struct dirent *de;
 
 			if (!(dir = opendir( xmaildir ))) {
-				fprintf( stderr, "%s: %s\n", xmaildir, strerror(errno) );
+				sys_error( "Cannot list '%s'", xmaildir );
 				return 1;
 			}
 			while ((de = readdir( dir ))) {
@@ -374,13 +378,13 @@ main( int argc, char **argv )
 			outconfig = path2;
 		}
 		if ((fd = creat( outconfig, 0666 )) < 0) {
-			fprintf( stderr, "Error: cannot write new config %s: %s\n", outconfig, strerror(errno) );
+			sys_error( "Error: cannot create config file '%s'", outconfig );
 			return 1;
 		}
 	} else {
 		strcpy( path2, "/tmp/mbsyncrcXXXXXX" );
 		if ((fd = mkstemp( path2 )) < 0) {
-			fprintf( stderr, "Can't create temp file\n" );
+			sys_error( "Error: cannot create temporary config file" );
 			return 1;
 		}
 	}
@@ -390,7 +394,7 @@ main( int argc, char **argv )
 		return 0;
 	args = 0;
 	add_arg( &args, "mbsync" );
-	if (Verbose)
+	while (--Verbose >= 0)
 		add_arg( &args, "-V" );
 	if (Debug)
 		add_arg( &args, "-D" );
@@ -427,6 +431,6 @@ main( int argc, char **argv )
 				add_arg( &args, find_box( argv[optind] )->channel_name );
 	}
 	execvp( args[0], args );
-	perror( args[0] );
+	sys_error( "Cannot execute %s", args[0] );
 	return 1;
 }

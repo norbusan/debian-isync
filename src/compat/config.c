@@ -14,8 +14,7 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "isync.h"
@@ -97,7 +96,7 @@ load_config( const char *path, config_t ***stor )
 
 	if (!(fp = fopen( path, "r" ))) {
 		if (errno != ENOENT)
-			perror( "fopen" );
+			sys_error( "Cannot read config file '%s'", path );
 		return;
 	}
 	if (!Quiet && !Debug && !Verbose)
@@ -241,18 +240,16 @@ write_imap_server( FILE *fp, config_t *cfg )
 	config_t *pbox;
 	char *p, *p2;
 	int hl, a1, a2, a3, a4;
-	char buf[128];
+	char buf[128], ubuf[64];
 	static int tunnels;
 
-	if (cfg->tunnel) {
-		nfasprintf( (char **)&cfg->server_name, "tunnel%d", ++tunnels );
-		fprintf( fp, "IMAPAccount %s\nTunnel \"%s\"\n",
-		         cfg->server_name, cfg->tunnel );
-	} else {
-		if (sscanf( cfg->host, "%d.%d.%d.%d", &a1, &a2, &a3, &a4 ) == 4)
-			/* XXX this does not avoid clashes. add port? */
-			cfg->server_name = nfstrdup( cfg->host );
+	if (cfg->tunnel)
+		nfasprintf( (char **)&cfg->old_server_name, "tunnel%d", ++tunnels );
 	else if (cfg->host) {
+		if (sscanf( cfg->host, "%d.%d.%d.%d", &a1, &a2, &a3, &a4 ) == 4)
+			hl = nfsnprintf( buf, sizeof(buf), "%s", cfg->host );
+		else {
+			/* XXX this does not avoid clashes. add port? */
 			p = strrchr( cfg->host, '.' );
 			if (!p)
 				hl = nfsnprintf( buf, sizeof(buf), "%s", cfg->host );
@@ -262,20 +259,47 @@ write_imap_server( FILE *fp, config_t *cfg )
 				if (p2)
 					hl = sprintf( buf, "%s", p2 + 1 );
 			}
-			if (boxes) /* !o2o */
-				for (pbox = boxes; pbox != cfg; pbox = pbox->next)
-					if (!memcmp( pbox->server_name, buf, hl + 1 )) {
-						nfasprintf( (char **)&cfg->server_name, "%s-%d", buf, ++pbox->servers );
-						goto gotsrv;
-					}
-			cfg->server_name = nfstrdup( buf );
-			cfg->servers = 1;
-		  gotsrv: ;
+		}
+		if (boxes) /* !o2o */
+			for (pbox = boxes; pbox != cfg; pbox = pbox->next)
+				if (!memcmp( pbox->server_name, buf, hl + 1 )) {
+					nfasprintf( (char **)&cfg->old_server_name, "%s-%d", buf, ++pbox->old_servers );
+					goto gotsrv;
+				}
+		cfg->old_server_name = nfstrdup( buf );
+		cfg->old_servers = 1;
+	  gotsrv: ;
 	} else {
 		fprintf( stderr, "ERROR: Neither host nor tunnel specified for mailbox %s.\n", cfg->path );
 		exit( 1 );
-		}
-		fprintf( fp, "IMAPAccount %s\n", cfg->server_name );
+	}
+
+	if (cfg->user)
+		nfsnprintf( ubuf, sizeof(ubuf), "%s@", cfg->user );
+	else
+		ubuf[0] = 0;
+	if (!cfg->host)
+		hl = nfsnprintf( buf, sizeof(buf), "%stunnel", ubuf );
+	else {
+		if (cfg->port != (cfg->use_imaps ? 993 : 143))
+			hl = nfsnprintf( buf, sizeof(buf), "%s%s_%d", ubuf, cfg->host, cfg->port );
+		else
+			hl = nfsnprintf( buf, sizeof(buf), "%s%s", ubuf, cfg->host );
+	}
+	if (boxes) /* !o2o */
+		for (pbox = boxes; pbox != cfg; pbox = pbox->next)
+			if (!memcmp( pbox->server_name, buf, hl + 1 )) {
+				nfasprintf( (char **)&cfg->server_name, "%s-%d", buf, ++pbox->servers );
+				goto ngotsrv;
+			}
+	cfg->server_name = nfstrdup( buf );
+	cfg->servers = 1;
+  ngotsrv: ;
+
+	fprintf( fp, "IMAPAccount %s\n", cfg->server_name );
+	if (cfg->tunnel)
+		fprintf( fp, "Tunnel \"%s\"\n", cfg->tunnel );
+	else {
 		if (cfg->use_imaps)
 			fprintf( fp, "Host imaps:%s\n", cfg->host );
 		else
@@ -289,7 +313,7 @@ write_imap_server( FILE *fp, config_t *cfg )
 	fprintf( fp, "RequireCRAM %s\nRequireSSL %s\n"
 	             "UseSSLv2 %s\nUseSSLv3 %s\nUseTLSv1 %s\n",
 	             tb(cfg->require_cram), tb(cfg->require_ssl),
-		     tb(cfg->use_sslv2), tb(cfg->use_sslv3), tb(cfg->use_tlsv1) );
+	             tb(cfg->use_sslv2), tb(cfg->use_sslv3), tb(cfg->use_tlsv1) );
 	if ((cfg->use_imaps || cfg->use_sslv2 || cfg->use_sslv3 || cfg->use_tlsv1) &&
 	    cfg->cert_file)
 		fprintf( fp, "CertificateFile %s\n", cfg->cert_file );
@@ -300,9 +324,9 @@ static void
 write_imap_store( FILE *fp, config_t *cfg )
 {
 	if (cfg->stores > 1)
-		nfasprintf( (char **)&cfg->store_name, "%s-%d", cfg->server_name, cfg->stores );
+		nfasprintf( (char **)&cfg->store_name, "%s-%d", cfg->old_server_name, cfg->stores );
 	else
-		cfg->store_name = cfg->server_name;
+		cfg->store_name = cfg->old_server_name;
 	fprintf( fp, "IMAPStore %s\nAccount %s\n",
 	         cfg->store_name, cfg->server_name );
 	if (*folder)
@@ -432,10 +456,10 @@ write_config( int fd )
 			box->channel_name = cn;
 		  gotchan:
 			if (box->path[0] == '/')
-				fprintf( fp, "Channel %s\nMaster :%s:%s\nSlave :local_root:%s\n",
+				fprintf( fp, "Channel %s\nMaster :%s:\"%s\"\nSlave :local_root:\"%s\"\n",
 				         box->channel_name, box->store_name, box->box, box->path + 1 );
 			else
-				fprintf( fp, "Channel %s\nMaster :%s:%s\nSlave :local:%s\n",
+				fprintf( fp, "Channel %s\nMaster :%s:\"%s\"\nSlave :local:\"%s\"\n",
 				         box->channel_name, box->store_name, box->box, box->path );
 			write_channel_parm( fp, box );
 		}

@@ -14,13 +14,10 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define _GNU_SOURCE
-
-#include <config.h>
+#include <autodefs.h>
 
 #include <sys/types.h>
 #include <stdarg.h>
@@ -41,7 +38,9 @@ typedef struct config {
 	struct config *next;
 
 	const char *server_name;
+	const char *old_server_name;
 	int servers;
+	int old_servers;
 	char *host;
 	int port;
 	char *user;
@@ -98,4 +97,5 @@ char *nfstrdup( const char *str );
 int nfvasprintf( char **str, const char *fmt, va_list va );
 int nfasprintf( char **str, const char *fmt, ... );
 int nfsnprintf( char *buf, int blen, const char *fmt, ... );
+void sys_error( const char *, ... );
 void ATTR_NORETURN oob( void );

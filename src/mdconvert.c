@@ -13,11 +13,10 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <config.h>
+#include <autodefs.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,17 +34,43 @@
 
 #define EXE "mdconvert"
 
-static int
+#if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4)
+# define ATTR_NORETURN __attribute__((noreturn))
+# define ATTR_PRINTFLIKE(fmt,var) __attribute__((format(printf,fmt,var)))
+#else
+# define ATTR_NORETURN
+# define ATTR_PRINTFLIKE(fmt,var)
+#endif
+
+static void ATTR_NORETURN
+oob( void )
+{
+	fputs( "Fatal: buffer too small. Please report a bug.\n", stderr );
+	abort();
+}
+
+static void ATTR_PRINTFLIKE(1, 2)
+sys_error( const char *msg, ... )
+{
+	va_list va;
+	char buf[1024];
+
+	va_start( va, msg );
+	if ((unsigned)vsnprintf( buf, sizeof(buf), msg, va ) >= sizeof(buf))
+		oob();
+	va_end( va );
+	perror( buf );
+}
+
+static int ATTR_PRINTFLIKE(3, 4)
 nfsnprintf( char *buf, int blen, const char *fmt, ... )
 {
 	int ret;
 	va_list va;
 
 	va_start( va, fmt );
-	if (blen <= 0 || (unsigned)(ret = vsnprintf( buf, blen, fmt, va )) >= (unsigned)blen) {
-		fputs( "Fatal: buffer too small. Please report a bug.\n", stderr );
-		abort();
-	}
+	if (blen <= 0 || (unsigned)(ret = vsnprintf( buf, blen, fmt, va )) >= (unsigned)blen)
+		oob();
 	va_end( va );
 	return ret;
 }
@@ -54,7 +79,7 @@ static const char *subdirs[] = { "cur", "new" };
 static struct flock lck;
 static DBT key, value;
 
-static inline int
+static int
 convert( const char *box, int altmap )
 {
 	DB *db;
@@ -81,22 +106,22 @@ convert( const char *box, int altmap )
 	nfsnprintf( tdpath, sizeof(tdpath), "%s.tmp", dpath );
 	if ((sfd = open( spath, O_RDWR )) < 0) {
 		if (errno != ENOENT)
-			perror( spath );
+			sys_error( "Cannot open %s", spath );
 		return 1;
 	}
 	if (fcntl( sfd, F_SETLKW, &lck )) {
-		perror( spath );
+		sys_error( "Cannot lock %s", spath );
 		goto sbork;
 	}
 	if ((dfd = open( tdpath, O_RDWR|O_CREAT, 0600 )) < 0) {
-		perror( tdpath );
+		sys_error( "Cannot create %s", tdpath );
 		goto sbork;
 	}
 	if (db_create( &db, 0, 0 )) {
 		fputs( "Error: db_create() failed\n", stderr );
 		goto tbork;
 	}
-	if ((ret = (db->open)( db, 0, dbpath, 0, DB_HASH, DB_CREATE, 0 ))) {
+	if ((ret = (db->open)( db, 0, dbpath, 0, DB_HASH, altmap ? DB_CREATE|DB_TRUNCATE : 0, 0 ))) {
 		db->err( db, ret, "Error: db->open(%s)", dbpath );
 	  dbork:
 		db->close( db, 0 );
@@ -138,7 +163,7 @@ convert( const char *box, int altmap )
 	for (i = 0; i < 2; i++) {
 		bl = nfsnprintf( buf, sizeof(buf), "%s/%s/", box, subdirs[i] );
 		if (!(d = opendir( buf ))) {
-			perror( "opendir" );
+			sys_error( "Cannot list %s", buf );
 			goto dbork;
 		}
 		while ((e = readdir( d ))) {
@@ -185,7 +210,7 @@ convert( const char *box, int altmap )
 			if (rename( buf, buf2 )) {
 				if (errno == ENOENT)
 					goto again;
-				perror( buf );
+				sys_error( "Cannot rename %s to %s", buf, buf2 );
 			  ebork:
 				closedir( d );
 				goto dbork;
@@ -198,11 +223,11 @@ convert( const char *box, int altmap )
 	db->close( db, 0 );
 	close( dfd );
 	if (rename( tdpath, dpath )) {
-		perror( dpath );
+		sys_error( "Cannot rename %s to %s", tdpath, dpath );
 		return 1;
 	}
 	if (unlink( spath ))
-		perror( spath );
+		sys_error( "Cannot remove %s", spath );
 	close( sfd );
 	return 0;
 }

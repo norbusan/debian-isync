@@ -54,27 +54,24 @@ log:
 	   git log --date=iso --log-size --name-only | \
 	     perl -e '$(LOG_PL)' > ChangeLog )
 
-if in_source_build
-deb:
-	CFLAGS="-O2 -mcpu=i686" fakeroot debian/rules binary
+deb: deb-clean
+	CFLAGS= fakeroot debian/rules binary
 
 deb-clean:
 	dh_clean -Xsrc/
-	fakeroot debian/rules unpatch
-
-distdir distclean: deb-clean
+	fakeroot debian/rules clean
 
 dist-hook:
-	find $(distdir)/debian \( -name .git -o -name .gitignore -o -name .#\*# -o -type l \) -print0 | xargs -0r rm -rf
-endif
+	find $(distdir)/debian \( -name .#\*# -o -type l \) -print0 | xargs -0r rm -rf
+	-cd $(distdir)/debian && test -f .gitignore && rm -rf `cat .gitignore` .gitignore
 
 dist-sign: dist
 	gpg -b -a $(PACKAGE)-$(VERSION).tar.gz
 
-rpm:
-	make dist
-	cp $(PACKAGE)-$(VERSION).tar.gz /usr/src/rpm/SOURCES
-	CFLAGS="-O2 -mcpu=i686" rpm -ba --clean isync.spec
+rpm: dist
+	CFLAGS="-O2 -mtune=core2" rpmbuild --clean -ta $(PACKAGE)-$(VERSION).tar.gz
 
-docdir = $(datadir)/doc/isync
+rpm-ia32: dist
+	CFLAGS="-O2 -m32 -march=i686" rpmbuild --target i686-unknown-linux --clean -ta $(PACKAGE)-$(VERSION).tar.gz
+
 doc_DATA = README TODO NEWS ChangeLog AUTHORS

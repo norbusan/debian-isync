@@ -1,7 +1,7 @@
 .ig
 \" mbsync - mailbox synchronizer
 \" Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
-\" Copyright (C) 2002-2004 Oswald Buddenhagen <ossi@users.sf.net>
+\" Copyright (C) 2002-2004,2011-2013 Oswald Buddenhagen <ossi@users.sf.net>
 \" Copyright (C) 2004 Theodore Y. Ts'o <tytso@mit.edu>
 \"
 \"  This program is free software; you can redistribute it and/or modify
@@ -15,13 +15,12 @@
 \"  GNU General Public License for more details.
 \"
 \"  You should have received a copy of the GNU General Public License
-\"  along with this program; if not, write to the Free Software
-\"  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+\"  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 \"
 \" As a special exception, mbsync may be linked with the OpenSSL library,
 \" despite that library's more restrictive license.
 ..
-.TH mbsync 1 "2004 Mar 27"
+.TH mbsync 1 "2013 Dec 14"
 ..
 .SH NAME
 mbsync - synchronize IMAP4 and Maildir mailboxes
@@ -89,12 +88,15 @@ If specified twice, suppress warning messages as well.
 The configuration file is mandatory; \fBmbsync\fR will not run without it.
 Lines starting with a hash mark (\fB#\fR) are comments and are ignored entirely.
 Configuration items are keywords followed by one or more arguments;
-arguments containing spaces must be enclosed in double quotes (\fB"\fR).
+arguments containing spaces must be enclosed in double quotes (\fB"\fR),
+and literal double quotes and backslashes (\fB\\\fR) must be backslash-escaped.
 All keywords (including those used as arguments) are case-insensitive.
+Bash-like home directory expansion using the tilde (\fB~\fR) is supported
+in all options which represent local paths.
 There are a few global options, the rest applies to particular sections.
 Sections are started by a section keyword and are terminated by an empty line
 or end of file.
-Every section defines an object with a an identifier unique within that
+Every section defines an object with an identifier unique within that
 object class.
 .P
 There are two basic object classes: Stores and Channels. A Store defines
@@ -105,6 +107,13 @@ There are two auxiliary object classes: Accounts and Groups. An Account
 describes the connection part of remote Stores, so a server connection can be
 shared between multiple Stores. A Group aggregates multiple Channels to
 save typing on the command line.
+.P
+File system locations (in particular, \fBPath\fR and \fBInbox\fR) use the
+Store's internal path separators, which may be slashes, periods, etc., or
+even combinations thereof.
+.br
+Mailbox names, OTOH, always use canonical path separators, which are
+Unix-like forward slashes.
 ..
 .SS All Stores
 These options can be used in all supported Store types.
@@ -131,20 +140,35 @@ directory.
 Messages larger than that will not be propagated into this Store.
 This is useful for weeding out messages with large attachments.
 \fBK\fR and \fBM\fR can be appended to the size to specify KiBytes resp.
-MeBytes instead of bytes. \fBB\fR is accepted but superflous.
+MeBytes instead of bytes. \fBB\fR is accepted but superfluous.
 If \fIsize\fR is 0, the maximum message size is \fBunlimited\fR.
 (Default: \fI0\fR)
 ..
 .TP
 \fBMapInbox\fR \fImailbox\fR
-Create a virtual mailbox (relative to \fBPath\fR), which is backed by
+Create a virtual mailbox (relative to \fBPath\fR) which aliases
 the \fBINBOX\fR. Makes sense in conjunction with \fBPatterns\fR in the
-Channels section.
+Channels section, though with a Maildir slave, you probably want to
+place \fBInbox\fR under \fBPath\fR instead.
+This virtual mailbox does not support subfolders.
+..
+.TP
+\fBFlatten\fR \fIdelim\fR
+Flatten the hierarchy within this Store by substituting the canonical
+hierarchy delimiter \fB/\fR with \fIdelim\fR.
+This can be useful when the MUA used to access the Store provides
+suboptimal handling of hierarchical mailboxes, as is the case with
+\fBMutt\fR.
+A common choice for the delimiter is \fB.\fR.
+.br
+Note that flattened sub-folders of the \fBINBOX\fR always end up
+under \fBPath\fR, including the "INBOX\fIdelim\fR" prefix.
 ..
 .TP
 \fBTrash\fR \fImailbox\fR
 Specifies a mailbox (relative to \fBPath\fR) to copy deleted messages to
-prior to expunging. See \fBINHERENT PROBLEMS\fR below.
+prior to expunging.
+See \fBRECOMMENDATIONS\fR and \fBINHERENT PROBLEMS\fR below.
 (Default: none)
 ..
 .TP
@@ -161,7 +185,7 @@ Store's \fBTrash\fR. When using this, the remote Store does not need an own
 (Default: \fIno\fR)
 ..
 .SS Maildir Stores
-The reference point for relative \fBPath\fRs is $HOME.
+The reference point for relative \fBPath\fRs is the current working directory.
 .P
 As \fBmbsync\fR needs UIDs, but no standardized UID storage scheme exists for
 Maildir, \fBmbsync\fR supports two schemes, each with its pros and cons.
@@ -201,7 +225,8 @@ use \fBmdconvert\fR to change it.
 ..
 .TP
 \fBInbox\fR \fIpath\fR
-The location of the \fBINBOX\fR. This is \fInot\fR relative to \fBPath\fR.
+The location of the \fBINBOX\fR. This is \fInot\fR relative to \fBPath\fR,
+but it is allowed to place the \fBINBOX\fR inside the \fBPath\fR.
 (Default: \fI~/Maildir\fR)
 ..
 .SS IMAP4 Accounts
@@ -226,14 +251,22 @@ Specify the login name on the IMAP server.  (Default: current local user)
 \fBPass\fR \fIpassword\fR
 Specify the password for \fIusername\fR on the IMAP server.
 Note that this option is \fBNOT\fR required.
-If no password is specified in the configuration file, \fBmbsync\fR
-will prompt you for it.
+If neither a password nor a password command is specified in the
+configuration file, \fBmbsync\fR will prompt you for a password.
+..
+.TP
+\fBPassCmd\fR \fIcommand\fR
+Specify a shell command to obtain a password rather than specifying a
+password directly. This allows you to use password files and agents.
+The command must produce exactly one line on stdout; the trailing newline is
+optional.
 ..
 .TP
 \fBTunnel\fR \fIcommand\fR
 Specify a command to run to establish a connection rather than opening a TCP
 socket.  This allows you to run an IMAP session over an SSH tunnel, for
-example.  This makes most other IMAPAccount options superflous.
+example.
+\fBHost\fR and \fBPort\fR are ignored when \fBTunnel\fR is set.
 ..
 .TP
 \fBRequireCRAM\fR \fIyes\fR|\fIno\fR
@@ -256,8 +289,12 @@ established with the IMAP server.  (Default: \fIyes\fR)
 ..
 .TP
 \fBCertificateFile\fR \fIpath\fR
-File containing X.509 CA certificates used to verify server identities.
-This option is \fImandatory\fR if SSL is used. See \fBSSL CERTIFICATES\fR below.
+File containing additional X.509 certificates used to verify server
+identities. Directly matched peer certificates are always trusted,
+regardless of validity.
+.br
+Note that the system's default certificate store is always used and should
+not be specified here.
 ..
 .TP
 \fBUseSSLv2\fR \fIyes\fR|\fIno\fR
@@ -275,6 +312,23 @@ Use SSLv3 for communication with the IMAP server over SSL?
 \fBUseTLSv1\fR \fIyes\fR|\fIno\fR
 Use TLSv1 for communication with the IMAP server over SSL?
 (Default: \fIyes\fR)
+..
+.TP
+\fBUseTLSv1.1\fR \fIyes\fR|\fIno\fR
+Use TLSv1.1 for communication with the IMAP server over SSL?
+(Default: \fIno\fR)
+..
+.TP
+\fBUseTLSv1.2\fR \fIyes\fR|\fIno\fR
+Use TLSv1.2 for communication with the IMAP server over SSL?
+(Default: \fIno\fR)
+..
+.TP
+\fBPipelineDepth\fR \fIdepth\fR
+Maximum number of IMAP commands which can be simultaneously in flight.
+Setting this to \fI1\fR disables pipelining.
+This is mostly a debugging only option.
+(Default: \fIunlimited\fR)
 ..
 .SS IMAP Stores
 The reference point for relative \fBPath\fRs is whatever the server likes it
@@ -298,6 +352,14 @@ mailbox names. Disabling this makes sense for some broken IMAP servers.
 This option is meaningless if a \fBPath\fR was specified.
 (Default: \fIyes\fR)
 ..
+.TP
+\fBPathDelimiter\fR \fIdelim\fR
+Specify the server's hierarchy delimiter.
+(Default: taken from the server's first "personal" NAMESPACE)
+.br
+Do \fBNOT\fR abuse this to re-interpret the hierarchy.
+Use \fBFlatten\fR instead.
+..
 .SS Channels
 .TP
 \fBChannel\fR \fIname\fR
@@ -306,10 +368,10 @@ Define the Channel \fIname\fR, opening a section for its parameters.
 .TP
 {\fBMaster\fR|\fBSlave\fR} \fB:\fIstore\fB:\fR[\fImailbox\fR]
 Specify the Master resp. Slave Store to be connected by this Channel.
-If \fImailbox\fR is omitted, \fBINBOX\fR is assumed.
-The \fImailbox\fR specification can be overridden by \fBPatterns\fR, which
-in turn can be overridden by a mailbox list in a Channel reference (a Group
-specification or the command line).
+If \fBPatterns\fR are specified, \fImailbox\fR is interpreted as a
+prefix which is not matched against the patterns, and which is not
+affected by mailbox list overrides.
+Otherwise, if \fImailbox\fR is omitted, \fBINBOX\fR is assumed.
 ..
 .TP
 \fBPattern\fR[\fBs\fR] [\fB!\fR]\fIpattern\fR ...
@@ -320,6 +382,13 @@ and \fB%\fR matches anything up to the next hierarchy delimiter. Prepending
 \fB!\fR to a pattern makes it an exclusion. Multiple patterns can be specified
 (either by supplying multiple arguments or by using \fBPattern\fR multiple
 times); later matches take precedence.
+.br
+Note that \fBINBOX\fR is not matched by wildcards, unless it lives under
+\fBPath\fR.
+.br
+The mailbox list selected by \fBPatterns\fR can be overridden by a mailbox
+list in a channel reference (a \fBGroup\fR specification or the command line).
+.br
 Example: "\fBPatterns\fR\ \fI%\ !Trash\fR"
 ..
 .TP
@@ -335,13 +404,23 @@ This is useful for mailboxes where you keep a complete archive on the server,
 but want to mirror only the last messages (for instance, for mailing lists).
 The messages that were the first to arrive in the mailbox (independently of
 the actual date of the message) will be deleted first.
-Messages that are flagged (marked as important) and recent messages will not
-be automatically deleted.
+Messages that are flagged (marked as important) and (by default) unread
+messages will not be automatically deleted.
 If \fIcount\fR is 0, the maximum number of messages is \fBunlimited\fR
 (Default: \fI0\fR).
 ..
 .TP
-\fBSync\fR {\fINone\fR|[\fIPull\fR] [\fIPush\fR] [\fINew\fR] [\fIReNew\fR] [\fIDelete\fR] [\fIFlags\fR]|\fIFull\fR}
+\fBExpireUnread\fR \fIyes\fR|\fIno\fR
+Selects whether unread messages should be affected by \fBMaxMessages\fR.
+Normally, unread messages are considered important and thus never expired.
+This ensures that you never miss new messages even after an extended absence.
+However, if your archive contains large amounts of unread messages by design,
+treating them as important would practically defeat \fBMaxMessages\fR. In this
+case you need to enable this option.
+(Default: \fIno\fR).
+..
+.TP
+\fBSync\fR {\fINone\fR|[\fIPull\fR] [\fIPush\fR] [\fINew\fR] [\fIReNew\fR] [\fIDelete\fR] [\fIFlags\fR]|\fIAll\fR}
 Select the synchronization operation(s) to perform:
 .br
 \fBPull\fR - propagate changes from Master to Slave.
@@ -405,11 +484,24 @@ does not exist.
 .TP
 \fBExpunge\fR {\fINone\fR|\fIMaster\fR|\fISlave\fR|\fIBoth\fR}
 Permanently remove all messages [on the Master/Slave] marked for deletion.
+See \fBRECOMMENDATIONS\fR below.
 (Global default: \fINone\fR)
 ..
+.TP
+\fBCopyArrivalDate\fR {\fIyes\fR|\fIno\fR}
+Selects whether their arrival time should be propagated together with
+the messages.
+Enabling this makes sense in order to keep the time stamp based message
+sorting intact.
+Note that IMAP does not guarantee that the time stamp (termed \fBinternal
+date\fR) is actually the arrival time, but it is usually close enough.
+(Default: \fIno\fR)
+..
 .P
-\fBSync\fR, \fBCreate\fR and \fBExpunge\fR can be used outside any section for
-a global effect. The global settings are overridden by Channel-specific options,
+\fBSync\fR, \fBCreate\fR, \fBExpunge\fR,
+\fBMaxMessages\fR, and \fBCopyArrivalDate\fR
+can be used before any section for a global effect.
+The global settings are overridden by Channel-specific options,
 which in turn are overridden by command line switches.
 ..
 .TP
@@ -437,25 +529,66 @@ with the same name on the command line.
 One or more Channels can be specified on the same line.
 .br
 If you supply one or more \fIbox\fRes to a \fIchannel\fR, they will be used
-instead of what is specified in the Channel. The same can be done on the command
-line, except that there newlines can be used as mailbox name separators as well.
+instead of what is specified in the Channel's Patterns.
+The same can be done on the command line, except that there newlines can be
+used as mailbox name separators as well.
 ..
 .TP
 \fBChannel\fR[\fBs\fR] \fIchannel\fR[\fB:\fIbox\fR[\fB,\fR...]] ...
 Add the specified channels to the group. This option can be specified multiple
 times within a Group.
 ..
-.SH SSL CERTIFICATES
-[to be done]
+.SS Global Options
+.TP
+\fBFSync\fR \fIyes\fR|\fIno\fR
+.br
+Selects whether \fBmbsync\fR performs forced flushing, which determines
+the level of data safety after system crashes and power outages.
+Disabling it is reasonably safe for file systems which are mounted with
+data=ordered mode.
+Enabling it is a wise choice for file systems mounted with data=writeback,
+in particular modern systems like ext4, btrfs and xfs. The performance impact
+on older file systems may be disproportionate.
+(Default: \fIyes\fR)
+..
+.SH RECOMMENDATIONS
+Make sure your IMAP server does not auto-expunge deleted messages - it is
+slow, and semantically somewhat questionable. Specifically, Gmail needs to
+be configured not to do it.
+.P
+By default, \fBmbsync\fR will not delete any messages - deletions are
+propagated by marking the messages as deleted on the remote store.
+Once you have verified that your setup works, you will typically want to
+set \fBExpunge\fR to \fBBoth\fR, so that deletions become effective.
+.P
+\fBmbsync\fR's built-in trash functionality relies on \fBmbsync\fR doing
+the expunging of deleted messages. This is the case when it propagates
+deletions of previously propagated messages, and the trash is on the target
+store (typically your IMAP server).
+.br
+However, when you intend \fBmbsync\fR to trash messages which were not
+propagated yet, the MUA must mark the messages as deleted without expunging
+them (e.g., \fBMutt\fR's \fBmaildir_trash\fR option). Note that most
+messages are propagated a long time before they are deleted, so this is a
+corner case you probably do not want to optimize for. This also implies
+that the \fBTrashNewOnly\fR and \fBTrashRemoteNew\fR options are typically
+not very useful.
+.P
+If your server supports auto-trashing (as Gmail does), it is probably a
+good idea to rely on that instead of \fBmbsync\fR's trash functionality.
+If you do that, and intend to synchronize the trash like other mailboxes,
+you should not use \fBmbsync\fR's \fBTrash\fR option at all.
 ..
 .SH INHERENT PROBLEMS
 Changes done after \fBmbsync\fR has retrieved the message list will not be
 synchronised until the next time \fBmbsync\fR is invoked.
 .P
-Using \fBTrash\fR on IMAP Stores bears a race condition: messages will be
+Using \fBTrash\fR on IMAP Stores without the UIDPLUS extension (notably,
+M$ Exchange up to at least 2010) bears a race condition: messages will be
 lost if they are marked as deleted after the message list was retrieved but
-before the mailbox is expunged. There is no risk as long as the IMAP mailbox
-is not simultaneously accessed by \fBmbsync\fR and another mail client.
+before the mailbox is expunged.
+There is no risk as long as the IMAP mailbox is accessed by only one client
+(including \fBmbsync\fR) at a time.
 ..
 .SH FILES
 .TP
@@ -470,9 +603,7 @@ mdconvert(1), isync(1), mutt(1), maildir(5)
 .P
 Up to date information on \fBmbsync\fR can be found at http://isync.sf.net/
 ..
-.SH AUTHOR
-Written by Michael R. Elkins <me@mutt.org>,
-.br
-rewritten and maintained by Oswald Buddenhagen <ossi@users.sf.net>,
-.br
-contributions by Theodore Y. Ts'o <tytso@mit.edu>.
+.SH AUTHORS
+Originally written by Michael R. Elkins,
+rewritten and currently maintained by Oswald Buddenhagen,
+contributions by Theodore Y. Ts'o.

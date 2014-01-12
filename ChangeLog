@@ -1,35 +1,1039 @@
-2012-07-07 15:19  Oswald Buddenhagen <ossi@kde.org>
+2013-12-08 21:29  Oswald Buddenhagen <ossi@users.sf.net>
 
-	* src/: compat/convert.c, drv_imap.c, drv_maildir.c, sync.c:
+	* README, src/mbsyncrc.sample:
 
-	fix a bunch of warnings
+	pre-release doc updates
 
-	(cherry picked from commit 378da8ad0d8865eac3ac690a34fa8a1ce40db8a3)
+2013-12-14 11:37  Oswald Buddenhagen <ossi@users.sf.net>
 
-	Conflicts:
-		src/drv_imap.c
-		src/sync.c
+	* src/mbsync.1:
 
-2011-03-27 10:06  Oswald Buddenhagen <ossi@kde.org>
+	elaborate on expunging and trashing
 
-	* src/: compat/main.c, drv_imap.c, main.c:
+2013-12-13 18:07  Oswald Buddenhagen <ossi@users.sf.net>
 
-	avoid preprocessor warnings on missing features: #if => #ifdef
+	* src/mbsync.1:
 
-	(cherry picked from commit 17f022f6880cf772d244aa456464bcb9b4ab2614)
+	clarify wording in MapInbox doc
 
-	Conflicts:
-		src/drv_imap.c
+2013-12-15 11:46  Oswald Buddenhagen <ossi@users.sf.net>
 
-2013-02-20 07:20  Oswald Buddenhagen <ossi@kde.org>
+	* src/drv_imap.c:
+
+	avoid array underflow in IMAP LIST .lock workaround
+
+	suggested by Mark Wielaard <mark@klomp.org>.
+
+	fwiw, the workaround really is still necessary with panda imap ...
+
+2013-12-13 14:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	MaxMessages: ignore entries with no master while calculating bulk fetch
+
+2013-12-11 15:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	adjust comments to new reality
+
+2013-12-11 15:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	ensure sequencing of message propagation and store closing
+
+	by putting the message propagation last, d3f634702 uncovered a
+	long-standing problem: we might have closed the source store before all
+	messages were propagated from it.
+
+2013-12-11 15:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix error paths wrt sync drivers, take 3
+
+	msgs_copied() was not checked at all, and msgs_flags_set() was doing it
+	wrong (sync_close() was not checked).
+
+	instead of trying to fix/extend the msgs_flags_set() model (ref-counting
+	and cancelation checking in lower-level functions, and return values to
+	propagate the status), place the refs/derefs around higher-level scopes
+	and do the checking only there. this is effectively simpler, and does
+	away with some obscure macros.
+
+2013-12-11 13:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't use UID EXPUNGE unless trashing
+
+	a simple CLOSE is way more efficient, so use it if no adverse effects
+	can come from it.
+
+2013-12-08 19:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* .gitignore, configure.ac, src/Makefile.am, src/common.h,
+	  src/compat/isync.h, src/config.c, src/config.h, src/driver.c,
+	  src/driver.h, src/drv_imap.c, src/drv_maildir.c, src/main.c,
+	  src/mdconvert.c, src/socket.c, src/socket.h, src/sync.c,
+	  src/sync.h, src/util.c:
+
+	reshuffle sources a bit
+
+	split header and move some code to more logical places.
+
+2013-12-08 15:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, main.c:
+
+	tag verbose output when channel links two verbose stores
+
+	otherwise it's pure guesswork to assign the output to particular stores.
+
+2013-12-08 15:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c:
+
+	move verbose socket logging out of socket driver
+
+	the way it's used, it's more of a high-level function.
+
+2013-12-08 14:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, main.c:
+
+	remove own_store() function from driver model
+
+	the drivers which support it can abstract it inside open_store() just
+	fine.
+
+2013-12-08 14:11  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make use of IMAP MOVE extension
+
+	the Maildir driver is always exposing behavior equivalent to this - it's
+	more efficient.
+
+2013-12-08 09:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	don't check for INBOX more than necessary
+
+2013-12-08 09:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	fix listing of nested maildir mailboxes
+
+2013-12-08 08:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: main.c, mbsync.1, mbsyncrc.sample:
+
+	allow prefixes to Patterns
+
+	this makes it possible to "rename" a "namespace" while syncing.
+
+2013-12-08 08:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	less spaghetti
+
+2013-12-07 16:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	factor out sync_listed_boxes()
+
+2013-12-07 15:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: main.c, mbsync.1:
+
+	refuse box list overrides if Channel has no Patterns
+
+	as the named boxes are the same on both sides, they logically make
+	sense only when the channel is in that mode anyway, which is the case
+	when using patterns.
+
+2013-12-07 15:11  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, main.c, util.c:
+
+	treat manually specified box list the same as one coming from Patterns
+
+2013-12-01 16:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	make host resolution error messages more useful in non-ipv6 builds
+
+2013-12-01 16:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	avoid useless delay after creating maildir box
+
+	we would see the recent timestamp of the creation and conclude that
+	something is going on, so we'd wait. this is obviously nonsense.
+	as we know that a freshly created mailbox is empty, simply skip the
+	message scan alltogether.
+
+2013-11-02 20:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_maildir.c, isync.h, mbsync.1,
+	  run-tests.pl, sync.c:
+
+	reduce FSync option to a boolean
+
+	there is no use for Thorough mode any more, so simplify the
+	configuration.
+
+2013-11-02 20:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't fsync after logging every TUID
+
+	as we now don't actually start propagating new messages until all TUIDs
+	have been generated, it's sufficient to sync just once. this makes it
+	a cheap operation, so we can do it at SYNC_NORMAL level already.
+
+2013-11-24 19:26  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, isync.h, mbsync.1, run-tests.pl, sync.c:
+
+	add ExpireUnread option
+
+2013-11-24 18:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, mbsync.1:
+
+	make it possible to specify CopyArrivalDate and MaxMessages globally
+
+	sneaky change on the side: the wording of the man page is changed from
+	"outside any section" to "before any section" to get global options.
+	this is not entirely true ... the previously existing options behave as
+	before, while the two newcomers actually affect subsequent channels.
+
+2013-11-24 18:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, isync.h, main.c, sync.c:
+
+	replace global_* with a channel_conf_t instance
+
+	this makes the (growing) list of getopt_helper()'s parameters
+	manageable. the few wasted bytes are worth it.
+
+2013-11-24 18:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, isync.h, main.c:
+
+	do not unnecessarily use bitfields
+
+	they don't save much (if any) space in our usage, while they make the
+	machine code more bloated and slow.
+
+2013-11-24 17:26  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	move handling of new messages after that of old ones
+
+	i.e., move it back. whatever the original reason was, it's now gone.
+
+	this order is way more natural, which allows us to remove the osrecadd
+	and S_DONE hacks.
+
+2013-11-04 08:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	verify idempotence of all sync operations
+
+2013-11-30 12:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: run-tests.pl, sync.c:
+
+	make MaxMessages work for new mails as well
+
+	this helps enormously on the first sync of a 100k message box with a
+	limit of 1k messages. it also happens to make the syncing idempotent.
+
+	in a few conditionals we now explicitly test for max_messages being
+	enabled, not smaxxuid != 0, as after the initial fetch with no important
+	messages smaxxuid is zero, but we still have to skip over 99k messages
+	in the above case.
+
+2013-11-23 14:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	delay propagation of new messages
+
+	previous sequence:
+	  examine & propagate new => examine old => propagate old
+	new sequence:
+	  examine new => examine old => propagate new => propagate old
+
+	this alone does not buy us much ...
+
+2013-11-02 18:33  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	make message propagation recording less magic
+
+	assign the sync record to the source message asap, and later on rely
+	on a more explicit condition than not doing so.
+
+2013-11-02 19:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	log maxuid bumping less aggressively
+
+	we can bump the internal variable whereever convenient, but we cannot
+	log it until we know that all messages were copied, as otherwise we
+	could miss some new messages after an interruption. with the new
+	approach, interruption would merely cause some additonal traffic.
+
+2013-11-17 16:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	document message expiration transactions
+
+2013-11-24 14:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	propagate deletions with other flag changes
+
+	less code duplication, more logical order of issued driver commands
+	(especially after the next commit), and the "side effect" of letting the
+	message expiration code see those deletions if they are asynchronous.
+
+2013-11-17 10:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't delay loading master even if messages were expired
+
+	the delay optimized the corner case of previously important but now
+	expired messages on the slave disappearing, either through an external
+	expunge or after a journal replay. no point in pessimizing the common
+	case.
+
+2013-11-17 08:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: run-tests.pl, sync.c:
+
+	remove cleanup of expired entries during setup of master load
+
+	the removed code would only ever trigger if a) we were after a journal
+	replay or b) something external expunged the expired messages - both are
+	corner cases not worth the extra code.
+	however, this means that the syncing code further down now needs to take
+	care of these zombies.
+	in the end, the normal cleanup will take care of all expired entries,
+	new and old.
+
+2013-11-24 18:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	micro-optimization/-clarification: swap condition order
+
+2013-11-23 11:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	make message counting in expiration code less confusing
+
+2013-11-10 18:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	count unread messages like flagged messages when expiring
+
+	that is, don't count them towards the total only below the cut-off
+	point. making them extend the working set even though they are inside it
+	is counterintuitive.
+
+2013-11-09 10:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	use post-sync "seen" flag to determine expirability
+
+	otherwise it wouldn't be idempotent.
+
+2013-11-08 11:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/isync.1, sync.c:
+
+	don't protect recent messages from MaxMessages
+
+	while maildir has a clearly defined meaning of "recent" and for example
+	mutt handles it graciously, IMAP's definition is fubared to the point
+	that some servers (for example gmail) simply refuse to support it.
+	for symmetry reasons it is best to pretend that it doesn't exist at all.
+	it doesn't seem too useful anyway (the user can simply mark the messages
+	as read to allow pruning).
+	and last but not least, the man page of mbsync says nothing about
+	"recent", only "unread". unlike the isync man page, though.
+
+2013-11-23 11:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	always get slave flags when we are expiring
+
+	even if we are not propagating new messages, the appearance of new
+	messages on the slave can lead to expiring older messages. for that, we
+	need to know their importance, and thus flags.
+
+	the alternative would be not doing an expiration run when not fetching
+	new messages, but that would mean more conditionals all over the place.
+	as the decision is somewhat arbitrary, just do the simpler thing.
+
+2013-11-16 16:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	do not trash expired messages
+
+	we are not actually deleting them, so there is no point in saving them
+	in the trash.
+
+2013-11-16 12:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: run-tests.pl, sync.c:
+
+	make sync state header format less obscure
+
+	the header is not space-critical, so use proper name-value pairs.
+	this has the additional advantage that subsequent format changes can be
+	done much easier.
+
+2013-11-16 12:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	make state loading in showstate() similar to ckstate()
+
+2013-11-09 12:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	take configs out of target state defs
+
+	cleaner and less duplication
+
+2013-11-16 12:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	more precise failure reporting
+
+2013-11-03 19:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	make it possible to run only selected tests
+
+2013-11-09 10:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	set srec->msg[] when finding messages by tuid
+
+	otherwise we would propagate phantom deletions.
+
+	this affected only sync runs after an interruption while storing
+	messages, so it went (mostly?) unnoticed.
+
+2013-11-09 10:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	remove pointless assignment
+
+	we already know that tmsg->srec is null at this point.
+
+2013-11-02 22:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	assert no stray TUIDs
+
+2013-11-30 14:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	initialize struct tm
+
+	strptime() does not initialize at least tm_isdst, which leads to an
+	uninited value reference in mktime().
+
+2013-11-09 13:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, main.c:
+
+	make use of strptime() portable
+
+	it does not (officially) support the %z conversion, so re-implement that
+	part by hand.
+
+2013-11-09 12:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix compilation with older gcc versions
+
+	the warning suppression pragma within function scope is apparently a new
+	thing.
+	as i don't want to disable the check for the entire function (even if
+	this currently would make no difference), just use a wrapper function
+	to suppress the format string check.
+
+2013-11-09 12:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	fix strftime() %z conversion specifier check
+
+	only glibc does something sane with gmtime()+strftime(). on bsd (incl.
+	mac os), strftime() can be used only with localtime().
+
+2013-11-06 07:40  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* .gitignore:
+
+	ignore automake's "compile" script
+
+2013-11-06 07:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* autogen.sh:
+
+	use autoreconf instead of calling separate tools
+
+	this has been the correct way since a long time.
+
+	Pointed-out-by: Felipe Contreras <felipe.contreras@gmail.com>
+
+2013-11-02 19:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, main.c, run-tests.pl, sync.c:
+
+	add/fix comments and improve debug messages
+
+2013-11-02 19:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	simplify condition
+
+	... and document the cases.
+
+2013-11-02 18:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	micro-optimization/-clarification
+
+2013-10-26 09:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	move initializations for clarity
+
+2013-05-20 16:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	MaxMessages: make condition exactly symmetrical to condition below
+
+2013-05-20 16:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	rewrite condition for readability and consistency
+
+2013-11-02 14:04  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	remove assumption about value of M constant
+
+2013-11-02 11:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix enum abuse
+
+	amends 9c86ec344.
+
+	S_FIND was for the sync record status field. it has no business in the
+	sync vars status fields. its value coincided with ST_SELECTED, which
+	luckily only means that we always tried to match up TUIDs even if there
+	was nothing to do.
+
+	the need for TUID matching arises in two mostly independent
+	circumstances, so add two separate flags ST_FIND_{OLD,NEW}.
+
+2013-11-03 19:20  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	create unseen messages in /new/
+
+	seen messages still go to /cur/.
+	this is consistent with the actual maildir driver.
+
+2013-11-03 11:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	be a bit more verbose
+
+2013-11-03 11:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	properly handle unexpected exit while replaying journal
+
+2013-11-03 11:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	ensure that the journal replay pass really does nothing
+
+2013-11-02 15:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	sort messages by serial number instead of UID in box dumper
+
+	the input data is sorted that way, so it's easier to compare.
+
+2013-11-02 14:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	fix error message in sync state dumper
+
+2013-09-25 15:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	deal with messages disappearing between being listed and fetched
+
+2013-09-25 18:56  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, mbsync.1:
+
+	support backslash-escaping in the config file
+
+	note that no attempt is made at making this work in the compat wrapper.
+
+2013-09-25 18:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	support backslashes and quotes in quoted IMAP strings
+
+	the RFCs require it - well hidden in the BNF at the bottom.
+
+	patch somewhat inspired by "guns" <self@sungpae.com>.
+
+2013-09-25 16:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make next_arg() more readable & efficient
+
+2013-09-01 15:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, src/isync.h, src/socket.c:
+
+	IPv6 support
+
+	inspired by a patch by "Todd T. Fries" <todd@fries.net>.
+
+2013-09-01 14:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, socket.c:
+
+	support multi-homed servers
+
+2013-08-03 13:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_imap.c, isync.h, main.c, mbsync.1,
+	  sync.c, util.c:
+
+	support multi-character path separators
+
+	this applies to both the IMAP PathDelimiter (which is needed by Lotus
+	Domino), as well as the Flatten-ed separators.
+
+2013-07-27 16:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	CHECK before FETCH after STORE
+
+	m$ exchange does not seem to update the index in time otherwise.
+
+2013-07-28 13:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, src/config.c, src/drv_imap.c,
+	  src/drv_maildir.c, src/isync.h, src/mbsync.1, src/sync.c:
+
+	added sync support for the arrival date of messages
+
+	initial patch by Marc Hoersken <info@marc-hoersken.de>
+
+2013-07-27 18:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	warn if we cannot find some messages by TUID
+
+2013-07-27 16:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, sync.c:
+
+	make better use of ATTR_UNUSED
+
+2013-07-27 13:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	be somewhat stricter about the LIST response syntax
+
+	the first token *must* be a list.
+
+2013-07-27 13:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	allow the mailbox names in LIST responses to be literals
+
+	Lotus Domino seems to send them like that.
+
+2013-07-27 12:31  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make parse_list() callback based
+
+	this allows us to parse IMAP literals ({}) in every list.
+
+2013-07-27 08:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1, mbsyncrc.sample:
+
+	add PassCmd option to query IMAP password dynamically
+
+	inspired by patches by
+	Aurélien Francillon <aurelien.francillon@eurecom.fr>,
+	Martin Stenberg <martin@gnutiken.se> and
+	sbfnk@users.sf.net.
+
+2013-05-09 16:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't unnecessarily use continue
+
+2013-05-11 08:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, sync.c:
+
+	use INT_MAX instead of zero for "no size limit"
+
+	this simplifies the actual conditions
+
+2013-04-20 14:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, mbsync.1, socket.c, sync.c:
+
+	update copyrights
+
+2013-04-13 17:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	man page fixups
+
+2013-04-13 17:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: main.c, mbsync.1:
+
+	don't let wildcards match INBOX, unless it lives under Path
+
+	it's counter-intuitive to have '*' match the (always present) INBOX
+	when the rest of the mailboxes lives in a different namespace.
+
+2013-04-13 17:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	always list INBOX when asked for it
+
+	it's there even if it's not there. says IMAP. no need to contradict.
+
+2013-04-01 10:20  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	split maildir_list_part()
+
+	the boolean argument switched two entirely separate functions.
+
+2013-04-01 10:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	remove some temporaries in maildir_list_part()
+
+2013-04-13 08:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	fix CRAM-MD5 authentication
+
+	the decoded challenge may be padded, so we really need to use strlen()
+	rather than just the decoded length.
+
+2013-04-13 08:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	more consistency in char signedness
+
+2013-04-07 15:20  Felipe Contreras <felipe.contreras@gmail.com>
+
+	* src/drv_maildir.c:
+
+	maildir: fix trash path double-free
+
+	It should be freed at the very end.
+
+	Signed-off-by: Felipe Contreras <felipe.contreras@gmail.com>
+
+2013-04-07 14:53  Felipe Contreras <felipe.contreras@gmail.com>
+
+	* configure.ac:
+
+	Fix build with recent autoconf and modernize configure.ac
+
+	configure.ac:2: warning: macro 'AM_CONFIG_HEADERS' not found in library
+	configure.ac:7: error: 'AM_PROG_CC_STDC': this macro is obsolete.
+	    You should simply use the 'AC_PROG_CC' macro instead.
+	    Also, your code should no longer depend upon 'am_cv_prog_cc_stdc',
+	    but upon 'ac_cv_prog_cc_stdc'.
+	configure.ac:3: warning: AM_INIT_AUTOMAKE: two- and three-arguments
+
+	Signed-off-by: Felipe Contreras <felipe.contreras@gmail.com>
+
+2013-04-07 10:42  Felipe Contreras <felipe.contreras@gmail.com>
+
+	* configure.ac:
+
+	Rename configure.in to the modern equivalent
+
+	Fixes:
+
+	 aclocal: warning: autoconf input should be named 'configure.ac', not 'configure.in'
+
+	Signed-off-by: Felipe Contreras <felipe.contreras@gmail.com>
+
+2013-04-07 14:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	discourage use of MapInbox
+
+2013-03-30 09:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't try to fetch status of minus one message
+
+	this would happen if we were trying to find newly pushed messages, but
+	none actually arrived.
+	as imap's ranges are not ordered, this would actually fetch one message.
+
+2013-03-30 15:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: run-tests.pl, sync.c:
+
+	don't record newuid in the sync state
+
+	this value is only ever used to find just pushed messages by TUID, so we
+	can simply use the UIDNEXT value from before we started pushing - and of
+	course, we need to record that in the journal. it makes no sense to log
+	the new value after completing a search, as there won't be a next search
+	before we push the next messages.
+
+2013-03-30 08:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	rename sync_vars_t::uidnext => newuid & fix comment
+
+	the purpose of this variable is to hold the UIDNEXT value from before
+	we started pushing new messages, i.e., the minimal uid we can expect
+	them to have.
+
+2013-03-30 13:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, mbsync.1, util.c:
+
+	make paths relative to CWD, after all
+
+	the test suite actually relies on it. it would be possible to adjust it,
+	but there is not much reason to make paths relative to HOME (as we
+	support convenient tilde expansion). so use the least invasive approach,
+	which is simply the old behavior. adjust the documentation accordingly.
+
+	This reverts commit da5ce5d8f42a15a2842d6d14043452f1a7892a0a.
+
+2013-03-29 17:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	improve socket error reporting
+
+	always use getsockopt() to query the meaning of POLLERR, rather than
+	reporting "Unidentified socket error".
+	this is unlikely to have any effect when using select(), as that one
+	pretty much never signals exceptional conditions.
+
+2013-03-29 16:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	factor out socket_connect_failed()
+
+2013-03-29 17:11  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	improve socket connect() error reporting with poll()
+
+	turns out that poll() may (and on linux does) signal POLLERR on
+	connection failure. this is unlike select(), which is specified to
+	signal write readiness in every case.
+	consequently, check whether we are connecting before checking for
+	POLLERR.
+
+2013-03-29 15:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, main.c:
+
+	introduce -DC option to only install a crash handler
+
+2013-03-24 13:46  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* configure.in:
 
-	bump version
+	don't claim that we are looking for exactly bdb 4.2
 
-2013-02-03 15:05  Oswald Buddenhagen <ossi@kde.org>
+2013-03-24 12:09  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	match flag names in man page
+
+	"Full" is an alias for "All", but let's stick to one.
+
+2013-03-24 10:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, util.c:
+
+	make path expansion match docu: paths are relative to ~
+
+	the current behavior of being relative to the current directory sort of
+	makes no sense, and contradicts the docu.
+
+2013-03-24 10:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/: isync.1, main.c:
+
+	disable SSLv2 by default in the wrapper as well
+
+2013-03-23 14:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	downcast time_t to long for printing
+
+	time_t may be long long. to keep the sprintf format strings simple, just
+	downcast - this is not going to be a problem for the next 30 years, and
+	until then long will be 64-bit everywhere anyway.
+
+	suggested 3.5 years ago by Antoine Reilles <tonio@NetBSD.org>.
+
+2013-03-23 08:59  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
+
+	fix cram-md5 authentication
+
+	we need to send a newline after the response for imap to grok it.
+
+2013-03-23 09:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix crashes in imap_open_store() error paths
+
+	it's not a good idea to invoke imap_open_store_bail() twice, either ...
+
+2013-03-17 13:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	fix crash in ssl connection error path
+
+	not a good idea to invoke the callback twice ...
+
+2013-03-17 11:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, mbsync.1, socket.c:
+
+	rewrite SSL certificate verification. again.
+
+	leave all the hard work to OpenSSL. this has several consequences:
+	- certificate chain validation actually works instead of throwing
+	  around error 20
+	- the interactive approval is gone. i don't expect it to be useful
+	  anyway, as mbsync is mostly a batch tool
+	- the code is much shorter
+
+2013-02-21 07:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README:
+
+	language fix
+
+2013-02-21 07:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README:
+
+	make build instructions more explicit
+
+2013-02-03 16:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
 
 	fix CVE-2013-0289: add SSL subject verification
 
@@ -42,41 +1046,923 @@
 	certificate file typically does), any host with a valid certificate
 	could pretend to be the wanted host.
 
-2012-04-28 10:10  Oswald Buddenhagen <ossi@kde.org>
+2013-02-03 16:47  Oswald Buddenhagen <ossi@users.sf.net>
 
-	* Makefile.am, configure.in:
+	* src/: drv_imap.c, isync.h, mbsync.1, socket.c:
 
-	disable debian stuff when shadow-building
+	add support for (disabling) TLS v1.1 and v1.2
 
-	the stuff needs to be run in the source dir and modifies it, which is a
-	bit against the idea of a shadow build.
-	fixes "make distcheck".
-
-2010-02-07 11:24  Oswald Buddenhagen <ossi@kde.org>
-
-	* .gitignore, Makefile.am, src/.gitignore,
-	  src/compat/.gitignore:
-
-	cvsignore => gitignore
-
-	(cherry picked from commit fe93082750537311bb4035e036a9f84bfde1285d)
-
-2010-02-07 11:23  Oswald Buddenhagen <ossi@kde.org>
-
-	* Makefile.am, autogen.sh:
-
-	adjust ChangeLog generation to git
-
-	now that log generation is cheap, don't store it in the SCM any more.
-	(cherry picked from commit 0832ef8ba7044ec872a8a354cafed109b8060ae3)
-
-2006-08-10 06:33  Oswald Buddenhagen <ossi@users.sf.net>
+2012-10-16 07:27  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
 
-	backport: memmove for overlapping mem copies.
+	more error checking of IMAP responses
 
-2010-10-03 12:25  Oswald Buddenhagen <ossi@kde.org>
+	REFMAIL: CA+Tk8fyu-6bwXq=ee2BgcKK_13m9S0RS+-0DhM=_jFqSKCH8aw@mail.gmail.com
+
+2012-09-22 15:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, util.c:
+
+	flush stdout more
+
+	to make sure it is timely written and not interleaved with stderr even
+	when when redirected.
+
+2012-09-22 15:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix TrashRemoteNew copy direction
+
+2012-09-16 11:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	consider hierarchy delimiter flattening when deciding what to list
+
+	flattened sub-folders of INBOX actually end up in Path, so list that
+	instead.
+
+	REFMAIL: 6c0ecbff0d025387020281c5d2f5e6e8@smallsys.org
+
+2012-09-16 10:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	try harder to list all necessary boxes
+
+	the pattern "INB*" may or may not refer to something in the INBOX. even
+	just "*" may. so list both the INBOX and the Path in case of
+	uncertainty.
+
+2012-09-15 13:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_maildir.c, isync.h, mbsync.1,
+	  run-tests.pl, sync.c:
+
+	add option to control amount of fsync()ing
+
+2012-09-15 12:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	avoid that a system crash can cause messages to be propagated twice
+
+	fdatasync() the journal after creating the pair record and recording
+	the TUID, but before the message propagation actually starts.
+
+	all other writes to the journal are not flushed, as they will at worst
+	cause some unnecessary network traffic without visible effect.
+
+2012-09-15 12:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	avoid that a system crash can lose mails
+
+	this fixes two possible failure scenarios:
+	- if the journal is committed but the mails are not, the missing files
+	  would be erroneously interpreted as deletions which would be
+	  propagated
+	- less seriously, if the mail files' meta data was committed but the
+	  file contents were not, we would end up with empty files, which would
+	  have to be re-fetched "behind mbsync's back" (just deleting the files
+	  would not work - see above)
+
+2012-09-15 11:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	avoid that a system crash can clobber the sync state file
+
+	make sure that the new state is committed to disk before overwriting the
+	old version - by default meta data is committed first, so we may end up
+	with no valid state at all otherwise.
+
+2012-09-15 09:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	quote mailbox names written to config file
+
+2012-09-15 09:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/config.c:
+
+	make more config file errors fatal
+
+	we really shouldn't just synchronize despite config parsing errors.
+
+2012-09-15 09:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_imap.c, drv_maildir.c, isync.h:
+
+	store config error status in conffile_t object
+
+	this makes passing it around more straight-forward
+
+2012-09-15 09:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_imap.c, isync.h, util.c:
+
+	make config parser a bit more careful about quotes
+
+	the parsing is more shell-like now:
+	- quoted and unquoted parts can be mixed in one argument
+	- the hashmark can be meaningfully quoted
+
+2012-09-09 10:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	call fdatasync() after updating .uidvalidity files
+
+	they must be flushed before the file system meta data, as otherwise we
+	may end up with duplicate UIDs after a system crash.
+
+2012-09-02 15:35  Ben Kibbey <bjk@luxsci.net>
+
+	* src/socket.c:
+
+	Fix certificate verification.
+
+	The connection state wasn't getting updated.
+
+2012-08-26 13:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README, src/compat/isync.1, src/mbsync.1:
+
+	pre-release doc updates
+
+2011-04-10 17:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/main.c, config.c, drv_imap.c, drv_maildir.c,
+	  isync.h, main.c, sync.c, util.c:
+
+	update copyrights
+
+	make the wrapper's help string also mention copyrights pertaining only
+	to the actual syncer, as this is the only string many people will ever
+	see.
+
+2011-04-10 17:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/config.c, compat/convert.c, compat/isync.1,
+	  compat/isync.h, compat/main.c, compat/util.c, config.c,
+	  drv_imap.c, drv_maildir.c, isync.h, main.c, mbsync.1,
+	  mdconvert.1, mdconvert.c, run-tests.pl, socket.c, sync.c,
+	  util.c:
+
+	replace FSF address with something more ... contemporary
+
+2012-08-26 14:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: Makefile.am, compat/Makefile.am:
+
+	install the config examples to docdir
+
+2012-08-26 14:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am:
+
+	update debian packaging
+
+2012-08-26 13:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am, isync.spec.in:
+
+	fix rpm packaging
+
+2012-08-26 11:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, sync.c, util.c:
+
+	use a hash table for message => sync record lookup
+
+	this removes the pathological O(<number of sync records> * <number of
+	new messages>) case at the cost of being a bit more cpu-intensive (but
+	O(<number of all messages>)) for old messages.
+
+2012-08-25 18:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	make use of UID EXPUNGE
+
+2012-08-18 11:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, isync.h, main.c, mbsync.1, sync.c:
+
+	introduce ability to flatten the hierarchy of Stores
+
+2012-08-11 16:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.in, src/drv_imap.c, src/drv_maildir.c, src/isync.h,
+	  src/main.c, src/mbsync.1, src/util.c:
+
+	add support for hierarchical mailboxes
+
+2012-08-11 15:11  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	calculate trash box path already in maildir_open_store()
+
+	this gives us some cleaner code paths later on, as we can treat the
+	trash box like a regular mailbox.
+
+2012-08-11 15:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	ensure that mailbox creation in maildir_store() is limited to trashing
+
+	other mailboxes would have been maildir_select()ed already.
+
+2011-06-13 10:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	refactor: imap_select2_p2 => imap_refcounted_done_box
+
+	soon, we'll use it for something different, too
+
+2012-08-25 13:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't crash when select() on master fails synchronously
+
+	svars->drv[S] would not be initialized yet, so cancel_sync() would
+	crash.
+
+2012-08-18 10:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, main.c, sync.c:
+
+	fix error handling of invalid SyncState *
+
+	when we find that the store is incompatible with in-store sync state,
+	we want to fail the whole channel. however, we must not claim that the
+	store died, otherwise it won't be disposed of properly.
+
+2011-06-02 17:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c:
+
+	reject qualified mailboxes with the magic name INBOX
+
+	otherwise we couldn't tell them apart from the real INBOX after
+	stripping away the Path.
+
+2011-07-25 07:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, mdconvert.c:
+
+	suppress bdb complaints about unknown file format
+
+	pass DB_TRUNCATE when creating databases. otherwise bdb will complain
+	about the empty file we pass it (we have to create it upfront to
+	implement our locking).
+
+2011-06-02 10:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	Revert "fix UIDNEXT handling"
+
+	in fact, UIDNEXT (and UIDVALIDITY) null is *not* allowed (see RFC3501
+	section 9). them popping up nonetheless was a dovecot bug (which would
+	also confuse dovecot itself).
+	having it in as a workaround was no good either, as quite some other
+	code in mbsync assumes that UIDs are not null.
+
+	This reverts commit e1fa867 and most of 39006d7.
+
+	-REFMAIL: 4CA62BA1.4020104@lemma.co.uk
+
+2012-08-25 13:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, isync.h, main.c, run-tests.pl:
+
+	deal with concurrent maildir modifications during listing
+
+	files may be renamed (due to new -> cur transition or flag changes),
+	which may lead to two effects if ignored:
+	- we see both the old and the new name, so we report a spurious
+	  duplicate UID
+	- we see neither name, so we report a spurious deletion
+
+	as countermeasure, record and compare directory modification times. upon
+	mismatch, we just start over - as usual.
+
+2011-05-03 07:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	make maildir uidvalidity change fatal
+
+	it's best to give the user a chance to fix it rather than completely
+	messing up the syncstate by re-enumerating the UIDs.
+
+2011-05-22 15:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	cleanup maildir error paths
+
+	don't try to unlock and close databases and files - this will happen a
+	moment later anyway, through cancelation or re-selection.
+	ironically, this plugs a memory leak, because an open main database is
+	used as a signal to close a temporary db in maildir_scan().
+
+2011-05-22 15:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	fix potential double free
+
+	the store may be discarded before we reach maildir_select() again, which
+	will leave us with a dangling pointer.
+
+2011-05-22 15:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	plug memory leak in maildir_store_msg() upon failure to acquire UID
+
+2011-04-10 11:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, run-tests.pl,
+	  sync.c:
+
+	employ alternative scheme to finding messages by TUID
+
+	instead of SEARCHing every single message (which is slow and happens to
+	be unreliabe with M$ Exchange 2010), just FETCH the new messages from
+	the mailbox - the ones we just appended will be amongst them.
+
+2011-04-03 09:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	clearer debug msg
+
+2011-04-11 08:46  Oswald Buddenhagen <oswald.buddenhagen@nokia.com>
+
+	* src/: isync.h, mdconvert.c:
+
+	use ATTR_PRINTFALIKE
+
+2012-09-01 15:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: socket.c, sync.c, util.c:
+
+	fix line wrapping before info messages
+
+	unless an info message is explictly marked as a continuation, it must
+	terminate any pending line (typically the progress information) first.
+
+	debug output is not affected, as it is mutually exclusive with info
+	output, and no debug lines are left unterminated outside clear scopes.
+
+2011-06-02 08:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, main.c, util.c:
+
+	remove Ontty flag
+
+	i can't figure out why i added it in the first place. it doesn't seem to
+	make any sense ...
+
+2011-04-11 08:45  Oswald Buddenhagen <oswald.buddenhagen@nokia.com>
+
+	* src/: isync.h, sync.c, util.c:
+
+	centralize flushing of unfinished debug lines
+
+2011-04-10 13:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/config.c, compat/convert.c, compat/isync.h,
+	  compat/main.c, compat/util.c, config.c, drv_imap.c,
+	  drv_maildir.c, isync.h, mdconvert.c, socket.c, sync.c,
+	  util.c:
+
+	unify error reporting
+
+	- introduce sys_error() and use it instead of perror() and
+	  error(strerror()) in all expected error conditions
+	- perror() is used only for "something's really wrong with the system"
+	  kind of errors
+	- file names, etc. are quoted if they are not validated yet, so e.g. an
+	  empty string becomes immediately obvious
+	- improve and unify language
+	- add missing newlines
+
+2011-03-27 18:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	don't complain about disappearing temp files
+
+	some other process might be cleaning up concurrently ...
+
+2011-03-27 15:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/isync.h:
+
+	enlarge receive buffer considerably
+
+	the tiny buffer makes no sense in the face of huge payloads and now
+	additionally masses of replies from pipelined commands.
+
+2011-03-13 14:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.in, src/drv_imap.c, src/mdconvert.c:
+
+	compile with -ansi -pedantic on gcc
+
+	greatly helps portability ...
+
+2012-09-01 19:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.in, src/compat/isync.h, src/compat/main.c,
+	  src/isync.h:
+
+	define _GNU_SOURCE on the command line
+
+	that way it is already set in configure and can thus be used by tests.
+
+2011-03-20 17:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	centralize imap_cmd_refcounted_state refcount decrementing
+
+	no else branches remain, so the if() can be put into
+	imap_refcounted_done()
+
+2011-03-12 15:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	get rid of redundant literal_pending state flag
+
+2012-08-25 16:26  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.in, src/drv_imap.c, src/isync.h, src/mbsync.1,
+	  src/socket.c:
+
+	fully asynchronous IMAP operation
+
+	- asynchronous sockets using an event loop
+	  - connect & starttls have completion callback parameters
+	  - callbacks for notification about filled input buffer and emptied
+	    output buffer
+	- unsent imap command queue
+	  - used when
+	    - socket output buffer is non-empty
+	    - number of commands in flight exceeds limit
+	    - last sent command requires round-trip
+	    - command has a dependency on completion of previous command
+	  - trashnc is tri-state so only a single "scout" trash APPEND/COPY is
+	    sent at first. a possibly resulting CREATE is injected in front of
+	    the remaining trash commands, so they can succeed (or be cancel()d
+	    if it fails).
+	  - queue's presence necessitates imap_cancel implementation
+
+2011-03-13 13:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.in, src/isync.h, src/main.c, src/util.c:
+
+	add simple mainloop implementation
+
+	not used so far
+
+2011-03-19 18:40  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	move responsibility for closing sockets on error to user
+
+	the only user being imap and the first thing in imap_cancel_store()
+	being a call to socket_close(), this code was pretty pointless anyway.
+
+2011-03-27 14:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, isync.h, socket.c:
+
+	make socket read/write error reporting callback-based
+
+	the functions still have synchronous return codes as well - this enables
+	early error returns without having to resort to refcounting.
+
+2011-04-03 16:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, isync.h, socket.c:
+
+	decouple the filling of the read buffer from consuming it
+
+	this prepares the code for being called from a callback.
+
+	notably, this makes the imap list parser have a "soft stack", so the
+	recursion can be suspended at any time.
+
+2011-03-27 10:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	centralize imap_cmd disposal
+
+2011-03-13 13:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, isync.h, socket.c:
+
+	make socket_write() capable of taking ownership of the buffer
+
+	that way the user code doesn't have to free it any more.
+
+2011-03-13 12:40  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c:
+
+	change socket_write() return code semantics
+
+	instead of returning a write()-like result, return only a binary status
+	code - write errors are handled internally anyway, so user code doesn't
+	have to check the write length.
+
+2011-03-27 14:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	make IMAP pipeline depth configurable
+
+	currently, this affects only "clustered" message listings and
+	flag stores.
+
+2011-03-19 21:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	cancel submitted commands when canceling store
+
+	we already have some minimal asynchronicity, so there might be commands
+	in flight when a fatal error comes in.
+
+2011-01-23 13:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, isync.h, socket.c:
+
+	Socket_t + buffer_t => conn_t
+
+	remove the layering, in favor of a "buffered connection" abstraction.
+
+2011-04-10 11:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	security fix: failure to load the certificate file is *not* OK ...
+
+2011-01-23 12:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: Makefile.am, drv_imap.c, isync.h, socket.c:
+
+	move socket code to a separate file
+
+	this makes the layering more obvious
+
+2011-03-13 11:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	move greeting response handling into get_cmd_result()
+
+	the primary purpose of this is getting rid of the "free-standing"
+	buffer_gets() call.
+
+2011-04-03 16:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, isync.h, sync.c:
+
+	docs
+
+	- insert "separator comments" between driver entry points
+	- document driver API
+	- document sync_vars_t parts that are stored in the sync state header
+
+2011-04-03 16:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make imap_exec() result reporting callback-based
+
+	this makes the IMAP command submission interface asynchronous.
+
+	the functions still have synchronous return codes as well - this enables
+	clean error return paths. only when we invoke callbacks we resort to
+	refcounting.
+
+	as a "side effect", properly sequence commands after CREATE resulting
+	from [TRYCREATE].
+
+2011-07-24 18:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	rely on the maildir's existence with "SyncState *"
+
+	now that we open the box first, we know that it will exist at this
+	point.
+
+2011-07-24 18:26  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	validate maildirs more strictly
+
+	now that "SyncState *" won't create fake mailboxes any more, we can make
+	a full validity check again.
+
+2011-07-23 14:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, sync.c:
+
+	split out drv->load() from drv->select()
+
+2011-07-23 14:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	make creation of trash folder independent from -C option
+
+	the trash is not a box which is synced, but a "byproduct" of
+	manipulating synced boxes, so it makes no sense to bind it to the same
+	option.
+
+2012-07-29 23:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	minor cleanup: use ctx->gen instead of gctx for consistency
+
+2012-07-29 21:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	make callbacks return early when canceling
+
+	even after driver->cancel() the store may complete commands successfully.
+	return early in this case, so we don't attempt to continue syncing.
+
+2012-07-29 21:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, sync.c:
+
+	fix error paths wrt sync drivers, take 2
+
+	synchronous error codes which are passed through callbacks aren't a
+	particularly good idea, after all: latest when the callback does stuff
+	which does not concern the caller, the return code becomes ambiguous.
+	instead, protect the sync_vars object with a refcount when invoking
+	driver functions from loops, as the callbacks they call could invalidate
+	the object and we would have no way of knowing that the loop should be
+	aborted prematurely. the upcoming async imap driver will also need a
+	refcount to protect the cancelation marker of the imap socket dispatcher
+	loop.
+
+2011-04-03 14:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't call cancel() repeatedly on a store
+
+	erroring command replies will trickle in even after canceling
+
+2012-07-15 10:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, main.c, sync.c:
+
+	replace DRV_STORE_BAD with a separate bad_callback()
+
+	that way we don't have to piggy-back (possibly asynchronous) fatal
+	errors to particular commands.
+
+	internally, the drivers still use synchronous return values as well,
+	so they don't try to access the invalidated store after calling back.
+
+2012-07-22 15:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't access free'd memory in cancel_sync()
+
+	as it happens, the 1st round *may* trash svars - if we get the
+	cancelation request after the slave store has already died.
+
+2012-07-22 15:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, sync.c:
+
+	make drv->cancel()'s callback have no status code
+
+	this function is not going to actually execute any commands, so it
+	makes no sense for the callback to have a status code.
+
+2012-06-17 12:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't decode aux pointer on DRV_CANCELED
+
+	the aux data was already free()d by the error callback by the time we
+	get this status code.
+
+2011-03-20 12:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	always use return value from get_cmd_result()
+
+	once we have callback-based error reporting, this will ensure that we
+	don't operate on invalidated data structures.
+
+2010-12-05 15:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make response code parse failure of untagged OK/NO/BYE/BAD non-fatal
+
+	as such, it does not disrupt the data stream
+
+2012-07-15 10:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	de-duplicate code a bit
+
+2010-12-15 18:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	remove redundant use_ssl variables
+
+	just use the presence of an SSL object as an indicator. if something
+	goes wrong during the ssl handshake or certificate validation, the
+	socket must be immediately closed anyway.
+
+2010-11-20 22:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/isync.h:
+
+	DRV_SERVER_BAD is and will probably stay unused => trash
+
+2010-11-20 09:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	after [TRYCREATE], just resend the same command instead of cloning it
+
+2011-03-20 15:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	use return values from correct set in get_cmd_result()
+
+	DRV_OK == RESP_OK, so this worked by accident
+
+2010-11-15 09:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	do away with the dreaded rcaps hack
+
+	don't pretend that the server has no literal+ for the time of the
+	first relevant command's synchronous execution. instead, enable the
+	lower layer to do the processing by telling it for which commands
+	trashnc ("trash's existence not confirmed") is relevant.
+
+2010-11-15 09:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	purge imap_store_t::currentnc vestiges
+
+	we always actually open the mailbox before appending to it, so we
+	obviously know that it exists - that's why the code was already
+	commented out. changing this assumption would significantly complicate
+	matters for little gain, so let's just assume it won't happen.
+
+	consequently, also don't set param.create when appending to regular
+	mailboxes.
+
+2011-06-13 10:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, main.c:
+
+	move setting of ctx->listed outside the drivers
+
+	it's essentially an external state flag
+
+2011-04-10 07:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	de-duplicate error paths
+
+	makes the code more compact. yay for gotos.
+
+2011-07-23 10:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	check return value from close() after write()
+
+	otherwise we may lose data when quota is exceeded
+	or nfs is in a bad mood.
+
+2012-07-07 15:19  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/convert.c, drv_imap.c, drv_maildir.c, sync.c:
+
+	fix a bunch of warnings
+
+2011-03-27 10:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/main.c, drv_imap.c, main.c:
+
+	avoid preprocessor warnings on missing features: #if => #ifdef
+
+2011-03-12 15:20  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	less bizarre code
+
+	we know that there is only one command in progress, so there
+	is no need to employ tricks to access the last command.
+
+2011-01-23 12:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make cram() sane
+
+	- don't silently fail in release mode (expression with side effects
+	  inside assert())
+	- save some redundand strlen()s by not throwing away known lengths
+	- reorganize the code for legibility
+
+2010-11-20 22:04  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't compare find_old_done with find_new_total
+
+	this didn't have any effect as no async drivers currently exist.
+
+2010-12-19 22:33  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	don't hang if store cannot be opened asynchronously
+
+2011-03-06 22:04  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't leak SSL objects
+
+2011-03-27 09:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	add CR after TUID during LF => CRLF conversion
+
+2011-03-27 08:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix (another) out-of-bounds access in CRLF conversion
+
+	if the header contained no CRs but the body (or the post-TUID part of
+	the header) did, the TUID insertion would add an excess CR, thus
+	overflowing the buffer by one byte.
+
+2010-11-14 16:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	document some breakage
+
+2010-11-14 15:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/convert.c, drv_imap.c, drv_maildir.c:
+
+	turns out, free(NULL) is just fine ...
+
+2010-10-03 12:31  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
 
@@ -86,7 +1972,7 @@
 
 	-REFMAIL: 4CA62BA1.4020104@lemma.co.uk
 
-2010-10-03 09:53  Oswald Buddenhagen <ossi@kde.org>
+2010-10-03 09:53  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
 
@@ -101,213 +1987,910 @@
 
 	-REFMAIL: 4C9AB98E.3000400@lemma.co.uk
 
-2009-03-21 16:05  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/: drv_imap.c, sync.c:
-
-	handle failure to store message. this helps with invalid messages like
-	0-byte files after crashes.
-
-2009-03-21 14:11  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* configure.in:
-
-	bump version
-
-2008-08-23 07:55  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/: drv_imap.c, sync.c:
-
-	backport: deal with UIDVALIDITY of 0 properly.
-	CCMAIL: skinner@destiny-denied.co.uk
-	-REF: 20080822094543.GA3528@ugly.local
-
-2008-04-13 09:57  Oswald Buddenhagen <ossi@users.sf.net>
+2010-09-26 13:26  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
 
-	backport: give the implicitly created imap account config the name of
-	the store.
+	remove useless message
 
-2008-02-23 14:19  Oswald Buddenhagen <ossi@users.sf.net>
+	don't complain about missing greeting response - we already complained
+	about an unexpected EOF anyway.
 
-	* src/compat/config.c:
-
-	backport: compat wrapper: don't crash if neither host nor tunnel are
-	specified.
-
-2008-02-23 09:41  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* configure.in:
-
-	bump version
-
-2008-02-23 09:38  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/compat/config.c:
-
-	backport: quote user name in generated config.
-
-2008-02-23 09:22  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/main.c:
-
-	backport: don't overlook 2nd and later single-letter options in last
-	argument.
-
-2008-02-23 09:03  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/: compat/convert.c, drv_maildir.c, mdconvert.c:
-
-	backport: put pointers to bdb open() into parentheses, so they won't be
-	macro-expanded as libc open.
-
-2007-09-22 08:49  Oswald Buddenhagen <ossi@users.sf.net>
+2010-04-05 11:15  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
 
-	backport: don't use #ifdef inside htons() arguments - it can be a macro.
+	assert valid file handles
 
-2007-04-04 17:55  Oswald Buddenhagen <ossi@users.sf.net>
+	i've seen error logs of the type
+	  SSL_write: Bad file descriptor
+	and i simply can't nail it, so go for some more drastic measures.
+
+2010-04-05 11:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	formatting
+
+2010-04-05 11:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	beautify error messages
+
+	don't print the error number - we print the error string anyway, so it
+	adds no value.
+	add some whitespace to the messages as well.
+
+2010-04-05 11:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix uninitialized variable read
+
+	this is basically a security fix for nonsensical configurations:
+	if the specified CertificateFile did not contain any certificates,
+	we *might* have accepted an arbitrary server certificate.
+
+2010-02-28 21:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/isync.1, mbsync.1:
+
+	remove mail addresses from man pages
+
+	apparently, some people don't see the "maintained by" bits, so make them
+	look harder for explicit contact information (to be found in AUTHORS).
+
+2010-02-07 20:20  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix compile with SSL on Mac OS X
+
+	patch by Remko Tronçon <remko@el-tramo.be>
+	BUG: 2126899
+
+2010-02-07 16:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/: isync.1, main.c:
+
+	add -P option to isync wrapper
+
+	not really a backwards compat option, but whatever ...
+
+	based on a patch submitted long ago by "nobody".
+	BUG: 1433532
+
+2010-02-07 21:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* isync.spec.in:
+
+	fix rpm spec file
+
+	-REFMAIL: 20090122213325.GA11572@crow.ths.tcoek12.org
+
+2010-02-07 21:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am:
+
+	(new?) automake already sets docdir correctly for us
+
+2010-02-07 11:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* .gitignore, Makefile.am, src/.gitignore,
+	  src/compat/.gitignore:
+
+	cvsignore => gitignore
+
+2010-02-07 11:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am, autogen.sh:
+
+	adjust ChangeLog generation to git
+
+	now that log generation is cheap, don't store it in the SCM any more.
+
+2010-02-06 18:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am:
+
+	fix "make distcheck"
+
+	this makes the deb-clean target shadow build safe
+
+2010-02-06 09:40  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/main.c, drv_imap.c, isync.h, main.c:
+
+	add extra verbose mode which dumps the message contents
+
+	i needed that to debug the line ending issues. maybe it will find other
+	uses as well ...
+
+2010-02-06 09:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, isync.h, sync.c:
+
+	fix line ending conversion logic
+
+	imap may very well store messages with LF line endings. only RFC2822
+	requires CRLF.
+	consequently, preserve the line endings as much as possible unless the
+	mailbox format does not support it (this would be the case for unix mbox
+	- i actually have no idea about maildir).
+
+2010-02-06 09:32  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/sync.c:
 
-	avoid crash in case of a rather weird (==misconfigured?) sync state
-	location.
+	some more error reporting relating malformed messages
 
-2007-04-04 13:27  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/drv_imap.c:
-
-	accept empty SEARCH IMAP responses - reasonable servers omit them
-	alltogether, but this is allowed, too. patch by
-	CCMAIL: Alexander Gerasiov <gq@cs.msu.su>
-	fixes debian bug #413336
-
-	fixed in HEAD a year ago - accidentally ...
-
-2007-02-10 15:41  Oswald Buddenhagen <ossi@users.sf.net>
+2008-08-31 20:14  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
 
-	backport: fix crash due to uninited var when parsing IMAPServer.
-	-REF: <E1HFuIM-00041h-Nn@sc8-pr-cvs2.sourceforge.net>
+	refactoring. main part is killing struct imap_cmd_cb as such.
+	issue_imap_cmd is split into new_imap_cmd and submit_imap_cmd, so the
+	command can be parametrized after it was instanciated.
+
+2008-08-23 07:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, sync.c:
+
+	deal with UIDVALIDITY of 0 properly.
+	-REF: 20080822094543.GA3528@ugly.local
+
+2008-04-13 09:56  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	give the implicitly created imap account config the name of the store.
+
+2008-04-13 09:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make ssl certificate handling much more useful:
+	- system-wide ca certs are auto-loaded
+	- private certs are accepted even if they are self-signed
+
+2008-04-12 08:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	- accept unset CertificateFile
+	- print the certificate's fingerprint
+	- make the certificate acceptance prompt much less scary
+
+2008-04-12 08:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	ignore system flag extensions (\X-...)
+
+2008-03-16 09:09  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README:
+
+	minor updates
+
+2008-02-23 14:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	compat wrapper: don't crash if neither host nor tunnel are specified.
+	fixes:
+	CCMAIL: 449006@bugs.debian.org
+
+2008-02-23 09:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	quote user name in generated config.
+	fixes:
+	CCMAIL: 456775@bugs.debian.org
+
+2008-02-23 09:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	don't overlook 2nd and later single-letter options in last argument.
+	reported by fedora
+	-REF: <1197916586.13945.120.camel@localhost.localdomain>
+
+2008-02-23 09:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/convert.c, drv_maildir.c, mdconvert.c:
+
+	put pointers to bdb open() into parentheses, so they won't be
+	macro-expanded as libc open.
+	patch by fedora
+	-REF: <1197916586.13945.120.camel@localhost.localdomain>
+
+2008-02-23 08:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* AUTHORS:
+
+	reshuffle for "contact priority's" sake
+
+2007-09-22 08:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't use #ifdef inside htons() arguments - it can be a macro.
+	-REF: <lyy7ezyjah.fsf@gfn.org>
+	CCMAIL: Scott Gifford <sgifford@suspectclass.com>
+
+2007-04-04 17:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am:
+
+	forward port (finally ...): add target for creating signed package
+
+2007-04-04 16:19  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	#ifdef __linux__ for the crash handler. it compiles on other platforms,
+	but the functionality is bound to linux' /proc structure.
+
+2007-02-10 15:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix crash due to uninited var when parsing IMAPServer. Thanks to
+	CCMAIL: Antoine Reilles <tonio@NetBSD.org>
+	REF: <20070118182534.GA22288@arcelot.loria.fr>
+
+2006-12-09 10:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, sync.c:
+
+	fix error paths wrt sync drivers
+
+2006-12-09 10:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	handle abnormal program exit during regtest
+
+2006-12-04 17:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	initialize mvars->t[1] to 1. helps enormously ... :}
 
 2006-11-18 13:17  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_maildir.c:
 
-	backport: reverse-map <Inbox> to INBOX when encountered during listing.
+	reverse-map <Inbox> to INBOX when encountered during listing.
+	usually this will be a no-op (when putting INBOX in Path, people
+	generally call it INBOX), but better safe than sorry.
 
-2006-11-09 18:01  Oswald Buddenhagen <ossi@users.sf.net>
+2006-11-09 17:57  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/compat/main.c:
 
-	backport: make compat wrapper default to current user for imap login
+	make compat wrapper default to current user for imap login
 
-2006-11-03 13:05  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* Makefile.am:
-
-	add target for creating signed package
-
-2006-11-01 07:19  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/: drv_imap.c, mbsync.1:
-
-	backport:
-	- un-document "Host imaps:[...]" syntax and introduce new option UseIMAPS
-	  instead
-	- apply ted's patch to support UseIMAPS in conjunction with Tunnel
-	- document that SSLv2 is No Good (TM)
-
-2006-11-01 07:14  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/drv_imap.c:
-
-	backport: move assigning default port to the place of use
-
-2006-11-01 06:33  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* configure.in:
-
-	bump version
-
-2006-11-01 06:20  Oswald Buddenhagen <ossi@users.sf.net>
+2006-11-01 06:19  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/compat/config.c:
 
-	backport: put INBOX in Maildir
+	put INBOX in Maildir
 
-2006-10-24 17:39  Oswald Buddenhagen <ossi@users.sf.net>
-
-	* src/drv_maildir.c:
-
-	backport: don't crash on truncating db
-
-2006-07-31 05:31  Oswald Buddenhagen <ossi@users.sf.net>
+2006-10-24 17:37  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_maildir.c:
 
-	another attempt at working around glibc breakage.
+	don't crash on truncating database. seems to affect only some bdb
+	versions (e.g., 4.2).
 
-2006-07-29 11:53  Oswald Buddenhagen <ossi@users.sf.net>
+2006-08-10 07:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix bug in newline conversion causing buffer overflows.
+	this leads to segfaults and has some security impact.
+
+2006-08-10 06:33  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	memmove for overlapping mem copies.
+
+2006-07-31 05:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	glibc seems to be *really* fucked up.
+
+2006-07-29 11:52  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/: drv_maildir.c, mdconvert.c:
 
 	work around glibc bug: printf("%.*s", INT_MAX, s) tries to allocate 2G.
 
-2006-03-19 10:46  Oswald Buddenhagen <ossi@users.sf.net>
+2006-06-05 11:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	enable the old account naming scheme to deal with duplicated ip
+	addresses.
+	this is not incompatible - previously, it would just create garbage.
+
+2006-06-05 11:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/: config.c, isync.h:
+
+	create more descriptive account names, so password prompts look sane.
+	the channel names follow the old scheme, though - they are used to
+	compose sync state file names, and i don't feel like writing a migrator
+	for this.
+
+2006-05-28 16:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't crash in imap driver when Host is not specified.
+
+2006-05-28 16:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	be *slightly* more explicit about which options Tunnel makes
+	superfluous.
+
+2006-05-28 15:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	un-document "Host imaps:[...]" syntax and introduce new option UseIMAPS
+	instead.
+	apply ted's patch to support UseIMAPS in conjunction with Tunnel.
+	document that SSLv2 is No Good (TM).
+
+2006-05-28 13:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	move assigning default port to the place of use
+
+2006-05-27 12:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	add comment
+
+2006-05-27 12:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	seen messages are eligible for expiration even if they are recent in the
+	mailbox.
+
+2006-03-21 20:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	no/empty mailbox name means INBOX
+
+2006-03-21 20:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, main.c, sync.c,
+	  util.c:
+
+	make the driver model, sync_chans() and sync_boxes() fully async.
+	async drivers to follow ...
+
+2006-03-21 17:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	unscrew lf=>crlf conversion and tuid insertion
+
+2006-03-21 17:40  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	ok, mismerging and not running the reg-tests is lame. unscrew expunging
+	again.
+
+2006-03-21 16:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't enter trash loop if not trashing at all. also, move expunge
+	message where it belongs. not adding info("trashing"), as it will be
+	replaced in a moment anyway.
+
+2006-03-21 15:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: main.c, sync.c:
+
+	async merge: aggregate most variables of main() & sync_boxes() in
+	main_vars_t resp. sync_vars_t.
+	also some minor var renames, whitespace, comments.
+
+2006-03-21 10:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	split box list preparation from "consumption".
+
+2006-03-21 10:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, main.c, sync.c:
+
+	info() about opening of stores
+
+2006-03-20 20:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	do not repeatedly get namespace from server.
+
+2006-03-20 20:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	handle socket() failure and correctly report gethostbyname() failure.
+
+2006-03-20 20:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, main.c, sync.c,
+	  util.c:
+
+	update copyrights
+
+2006-03-20 19:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, main.c:
+
+	move whole responsibility for recycling open stores/server connections
+	to the drivers.
+
+2006-03-20 19:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, main.c:
+
+	keep the result of driver->list() and a flag whether it is valid in the store.
+
+2006-03-20 18:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, isync.h:
+
+	aggregate all (two ...) drivers in an array instead of naming them in
+	each (one ...) location explicitly.
+
+2006-03-20 17:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	whitespace and code verbosity
+
+2006-03-20 15:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	merge imap_t into imap_store_t - there is really no point in having them
+	separated.
+
+2006-03-19 11:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_imap.c, drv_maildir.c, isync.h, main.c,
+	  sync.c, util.c:
+
+	"fprintf( stderr," => "error(". new functions debugn() and infon()
+	for messages with missing newline; warn() and error() act upon this.
+
+2006-03-19 10:44  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/drv_imap.c:
 
 	make config parsing more robust against bogus input and report errors
 	more clearly.
 
-2006-01-31 15:45  Oswald Buddenhagen <ossi@users.sf.net>
+2006-02-12 11:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	factor out box selection from sync_boxes to avoid code dupe
+
+2006-02-11 20:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	lock the sync state open the journal before opening the master. this is
+	a bit ugly for the "SyncState *" case, as we have to create a directory
+	without making it a maildir right away. however, this makes the code
+	quite a bit simpler to understand and simpler to parallelize.
+
+2006-02-11 20:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	don't barf at directories with none of {tmp,new,cur}/ and turn them
+	into maildirs instead. see next commit.
+
+2006-02-11 20:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't commit state file when a fatal error occurs
+
+2006-02-11 19:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	unbelieveable, but close() can actually fail
+
+2006-02-11 19:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	add copyright + license
+
+2006-02-09 17:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* acinclude.m4, get-cert, src/compat/config.c,
+	  src/compat/convert.c, src/compat/isync.1, src/compat/isync.h,
+	  src/compat/main.c, src/compat/util.c, src/config.c,
+	  src/drv_imap.c, src/drv_maildir.c, src/isync.h, src/main.c,
+	  src/mbsync.1, src/mdconvert.1, src/mdconvert.c, src/sync.c,
+	  src/util.c:
+
+	update fsf's postal address. i think it's sort of useless nowadays
+	anyway, but heck ...
+
+2006-02-05 17:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	typos
+
+2006-02-05 17:39  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* configure.in:
 
-	bump version
+	bump version. no, i'm not releasing yet ... :)
 
-2006-01-31 15:21  Oswald Buddenhagen <ossi@users.sf.net>
+2006-02-05 17:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/Makefile.am:
+
+	include run-tests.pl in distribution
+
+2006-02-03 23:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	and now don't clobber the mails ...
+
+2006-02-03 21:33  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, sync.c, util.c:
+
+	wrap message storing into transactions. nice side effect: drivers don't
+	need to deal with line end conversion any move.
+
+2006-02-02 17:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, sync.c:
+
+	major overhaul of flag change propagation and MaxMessages handling:
+	- wrap message (un)expirations into transactions
+	- no redundand flag propagations in conjunction with expirations
+	- better prepared for the upcoming async operation
+
+2006-02-02 13:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	crash handler that launches gdb. activated when started with -D option.
+	simplifies debugging crashes during the reg-tests.
+
+2006-02-02 11:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	less cluttered debug output
+
+2006-02-02 11:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	cosmetics: move around variable declarations and remove obsolete comment
+
+2006-02-02 11:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	versioned journal. the commands and their meanings change all the time,
+	so better handle that case.
+	ps: yes, i think not upgrading mbsync between interrupting and resuming
+	a run is a reasonable requirement.
+
+2006-02-02 10:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	make the sync entry search in the journal replay wrap around at the end
+	of the list. the "always forward" assumption is violated in some cases.
+
+2006-02-02 10:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	much improved journal replay testing.
+	some clenup.
+
+2006-02-02 10:04  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: run-tests.pl, sync.c:
+
+	orphan/kill all affected entries after expunge
+
+2006-01-31 13:57  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* Makefile.am:
 
-	backport: deal with branches in "make log"
+	deal with branches in "make log"
 
-2006-01-31 15:17  Oswald Buddenhagen <ossi@users.sf.net>
+2006-01-30 13:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, sync.c:
+
+	M_EXPIRED -> M_EXPIRE
+
+2006-01-30 13:11  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	sanitize S_DEL
+
+2006-01-30 13:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	remove superfluous temporary rflags from sync_boxes
+
+2006-01-30 11:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, sync.c:
+
+	now that messages know their sync records, M_SYNCES is superfluous.
+
+2006-01-30 10:26  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, sync.c:
+
+	establish bi-directional mapping between mails and sync records. use it
+	to merge the --renew case into the --new case.
+
+2006-01-30 09:33  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	declaring ex[M] instead of ex[2] is, indeed, no good. long live watchpoints.
+
+2006-01-29 18:40  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/compat/main.c:
 
-	backport: fix 'isync -w' writing .mbsyncrc to a wrong directory
+	whoops - 'isync -w' would write .mbsyncrc to a wrong directory
 
-2006-01-31 15:16  Oswald Buddenhagen <ossi@users.sf.net>
+2006-01-29 15:52  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/sync.c:
 
-	backport: less confusing uid ranges in debug
+	move fetching new messages in front of syncing old entries. this alone
+	does not buy us a whole lot ...
 
-2006-01-31 15:15  Oswald Buddenhagen <ossi@users.sf.net>
+2006-01-29 15:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	test for journalling and journal replay.
+
+2006-01-29 15:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, main.c, sync.c:
+
+	undocumented flag -J to skip committing the new sync state.
+
+2006-01-29 14:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, isync.h, main.c, sync.c, util.c:
+
+	merge Quiet, Verbose & Debug into DFlags
+
+2006-01-29 11:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: isync.h, sync.c:
+
+	M_NOT_SYNCED => M_SYNCED. now that sync records know their messages, it
+	is simpler to track the positive case.
+
+2006-01-29 11:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	move driver options composition below journal replay - it might make
+	additional actions necessary (it doesn't, yet).
+
+2006-01-29 11:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, isync.h, sync.c:
+
+	split driver->prepare into ->prepare_opts and ->prepare_paths
+
+2006-01-25 06:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	#include limits.h (for INT_MAX)
+	REF: <a8e45e1b0601241753j1e14cc1cm3fc3c65c7acb0c1b@mail.gmail.com>
+
+2006-01-13 16:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	less confusing uid ranges in debug
+
+2006-01-12 06:36  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* configure.in, src/drv_imap.c:
 
-	backport: compile fixes
+	solaris 10 fix: use sys/filio.h for FIONREAD. untested.
+	REF: <20060111215014.GA601@49.180.97-84.rev.gaoland.net>
 
-2006-01-31 15:12  Oswald Buddenhagen <ossi@users.sf.net>
+2006-01-08 19:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	adjust to: omit flags other than "deleted" when expunging target.
+
+2006-01-03 09:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	collect stderr as well.
+
+2005-12-29 13:08  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/sync.c:
 
-	backport:
-	- sanitize flag handling of expired messages
-	- don't record we synced flags if we didn't
-	- remove now superfluous temporary rflags
+	don't record we synced flags if we didn't.
 
-2006-01-31 14:25  Oswald Buddenhagen <ossi@users.sf.net>
+2005-12-28 20:45  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/util.c:
 
-	backport: flush debug output
+	have to flush debug as well ...
+
+2005-12-28 20:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	of course F_DELETED will have been added to expired slave messages, so
+	don't complain about it.
+
+2005-12-28 19:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	put message references into the sync records. match up the uids after
+	opening the boxes instead of "sort-of-on-demand" - this is much simpler.
+	match from messages to sync records, not the other way round - makes the
+	debug output shorter, as the separate dump_box() is gone now.
+
+2005-12-28 19:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	"reformat" S_EXP_S setting logic for understandability.
+
+2005-12-28 11:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	whoops
+
+2005-12-28 10:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, isync.h, main.c, sync.c:
+
+	- instead of having {m,s}foo, we have foo[2] now, so we can do
+	  everything with loops instead of symmetric function calls
+	- added some const
+
+2005-12-27 17:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	show debug output on error.
+
+2005-12-27 17:31  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	make the error case output more useful by dumping the entire data set.
+
+2005-12-26 16:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	fix error message
+
+2005-12-26 16:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	add expiration tests
+
+2005-12-26 16:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	add MaxSize tests
+
+2005-12-26 16:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	when dumping mailboxes, sort by uid 1st.
+
+2005-12-26 15:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	detect excess messages after sync
+
+2005-12-26 15:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	sync state reader:
+	- grok negative uids
+	- more robust
+
+2005-12-26 15:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	don't eat array lead-in on empty arrays
+
+2005-12-26 15:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	why would somebody manipulate an expired message? right, he wouldn't:
+	he would either expunge the mailbox or configure his MUA to hide trashed
+	messages. consequently don't sync expired message flags, let alone
+	interpret them in a special way.
+	one special feature remains, though: if a non-expunged expired message
+	is flagged on the master, it will be unexpired on the slave. i'm not
+	sure whether i should remove or document this feature.
+
+2005-12-26 14:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	message tweaks
+
+2005-12-23 10:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	more logical order
+
+2005-12-22 18:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: .cvsignore, run-tests.pl:
+
+	add some regression testing.
 
 2005-12-22 14:59  Oswald Buddenhagen <ossi@users.sf.net>
 

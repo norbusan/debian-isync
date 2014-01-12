@@ -14,11 +14,10 @@
 \"  GNU General Public License for more details.
 \"
 \"  You should have received a copy of the GNU General Public License
-\"  along with this program; if not, write to the Free Software
-\"  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+\"  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 \"
 ..
-.TH isync 1 "2004 Mar 29"
+.TH isync 1 "2010 Feb 7"
 ..
 .SH NAME
 isync - synchronize IMAP4 and Maildir mailboxes
@@ -104,6 +103,9 @@ Specifies the hostname of the IMAP server
 .TP
 \fB-u\fR, \fB--user\fR \fIuser\fR
 Specifies the login name to access the IMAP server (default: $USER)
+.TP
+\fB-P\fR, \fB--pass\fR \fIpassword\fR
+Specifies the password to access the IMAP server (prompted for by default)
 .TP
 \fB-M\fR, \fB--maildir\fR \fIdir\fR
 Specifies the location for your local mailboxes.
@@ -218,7 +220,7 @@ This is useful for mailboxes where you keep a complete archive on the server,
 but want to mirror only the last messages (for instance, for mailing lists).
 The messages that were the first to arrive in the mailbox (independently of the
 actual date of the message) will be deleted first.
-Messages that are flagged (marked as important) and recent messages will not be
+Messages that are flagged (marked as important) and unread messages will not be
 automatically deleted.
 If \fIcount\fR is 0, the maximum number of messages is \fBunlimited\fR.
 (Default: 0)
@@ -259,7 +261,7 @@ File containing X.509 CA certificates used to verify server identities.
 .TP
 \fBUseSSLv2\fR \fIyes\fR|\fIno\fR
 Should \fBisync\fR use SSLv2 for communication with the IMAP server over SSL?
-(Default: \fIyes\fR if the imaps port is used, otherwise \fIno\fR)
+(Default: \fIno\fR)
 ..
 .TP
 \fBUseSSLv3\fR \fIyes\fR|\fIno\fR
@@ -313,7 +315,6 @@ mbsync(1), mdconvert(1), mutt(1), maildir(5)
 .P
 Up to date information on \fBisync\fR can be found at http://isync.sf.net/
 ..
-.SH AUTHOR
-Written by Michael R. Elkins <me@mutt.org>,
-.br
-maintained by Oswald Buddenhagen <ossi@users.sf.net>.
+.SH AUTHORS
+Originally written by Michael R. Elkins,
+currently maintained by Oswald Buddenhagen.

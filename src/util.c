@@ -1,7 +1,7 @@
 /*
  * mbsync - mailbox synchronizer
  * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
- * Copyright (C) 2002-2004 Oswald Buddenhagen <ossi@users.sf.net>
+ * Copyright (C) 2002-2006,2011,2012 Oswald Buddenhagen <ossi@users.sf.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,34 +14,69 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * As a special exception, mbsync may be linked with the OpenSSL library,
  * despite that library's more restrictive license.
  */
 
-#include "isync.h"
+#include "common.h"
 
+#include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
 #include <pwd.h>
-#include <ctype.h>
 
-int Verbose, Quiet, Debug;
+static int need_nl;
+
+void
+flushn( void )
+{
+	if (need_nl) {
+		putchar( '\n' );
+		fflush( stdout );
+		need_nl = 0;
+	}
+}
+
+static void
+printn( const char *msg, va_list va )
+{
+	if (*msg == '\v')
+		msg++;
+	else
+		flushn();
+	vprintf( msg, va );
+	fflush( stdout );
+}
 
 void
 debug( const char *msg, ... )
 {
 	va_list va;
 
-	if (Debug) {
+	if (DFlags & DEBUG) {
 		va_start( va, msg );
 		vprintf( msg, va );
 		va_end( va );
 		fflush( stdout );
+		need_nl = 0;
+	}
+}
+
+void
+debugn( const char *msg, ... )
+{
+	va_list va;
+
+	if (DFlags & DEBUG) {
+		va_start( va, msg );
+		vprintf( msg, va );
+		va_end( va );
+		fflush( stdout );
+		need_nl = 1;
 	}
 }
 
@@ -50,20 +85,24 @@ info( const char *msg, ... )
 {
 	va_list va;
 
-	if (!Quiet) {
+	if (!(DFlags & QUIET)) {
 		va_start( va, msg );
-		vprintf( msg, va );
+		printn( msg, va );
 		va_end( va );
-		fflush( stdout );
+		need_nl = 0;
 	}
 }
 
 void
-infoc( char c )
+infon( const char *msg, ... )
 {
-	if (!Quiet) {
-		putchar( c );
-		fflush( stdout );
+	va_list va;
+
+	if (!(DFlags & QUIET)) {
+		va_start( va, msg );
+		printn( msg, va );
+		va_end( va );
+		need_nl = 1;
 	}
 }
 
@@ -72,55 +111,55 @@ warn( const char *msg, ... )
 {
 	va_list va;
 
-	if (Quiet < 2) {
+	if (!(DFlags & VERYQUIET)) {
+		flushn();
 		va_start( va, msg );
 		vfprintf( stderr, msg, va );
 		va_end( va );
 	}
 }
 
-char *
-next_arg( char **s )
+void
+error( const char *msg, ... )
 {
-	char *ret;
+	va_list va;
 
-	if (!s || !*s)
-		return 0;
-	while (isspace( (unsigned char) **s ))
-		(*s)++;
-	if (!**s) {
-		*s = 0;
-		return 0;
-	}
-	if (**s == '"') {
-		++*s;
-		ret = *s;
-		*s = strchr( *s, '"' );
-	} else {
-		ret = *s;
-		while (**s && !isspace( (unsigned char) **s ))
-			(*s)++;
-	}
-	if (*s) {
-		if (**s)
-			*(*s)++ = 0;
-		if (!**s)
-			*s = 0;
-	}
-	return ret;
+	flushn();
+	va_start( va, msg );
+	vfprintf( stderr, msg, va );
+	va_end( va );
+}
+
+void
+sys_error( const char *msg, ... )
+{
+	va_list va;
+	char buf[1024];
+
+	flushn();
+	va_start( va, msg );
+	if ((unsigned)vsnprintf( buf, sizeof(buf), msg, va ) >= sizeof(buf))
+		oob();
+	va_end( va );
+	perror( buf );
+}
+
+void
+add_string_list_n( string_list_t **list, const char *str, int len )
+{
+	string_list_t *elem;
+
+	elem = nfmalloc( sizeof(*elem) + len );
+	elem->next = *list;
+	*list = elem;
+	memcpy( elem->string, str, len );
+	elem->string[len] = 0;
 }
 
 void
 add_string_list( string_list_t **list, const char *str )
 {
-	string_list_t *elem;
-	int len;
-
-	len = strlen( str );
-	elem = nfmalloc( sizeof(*elem) + len );
-	elem->next = *list;
-	*list = elem;
-	memcpy( elem->string, str, len + 1 );
+	add_string_list_n( list, str, strlen( str ) );
 }
 
 void
@@ -131,31 +170,6 @@ free_string_list( string_list_t *list )
 	for (; list; list = tlist) {
 		tlist = list->next;
 		free( list );
-	}
-}
-
-void
-free_generic_messages( message_t *msgs )
-{
-	message_t *tmsg;
-
-	for (; msgs; msgs = tmsg) {
-		tmsg = msgs->next;
-		free( msgs );
-	}
-}
-
-void
-strip_cr( msg_data_t *msgdata )
-{
-	int i, o;
-
-	if (msgdata->crlf) {
-		for (i = o = 0; i < msgdata->len; i++)
-			if (msgdata->data[i] != '\r')
-				msgdata->data[o++] = msgdata->data[i];
-		msgdata->len = o;
-		msgdata->crlf = 0;
 	}
 }
 
@@ -173,6 +187,19 @@ vasprintf( char **strp, const char *fmt, va_list ap )
 	else
 		memcpy( *strp, tmp, len + 1 );
 	return len;
+}
+#endif
+
+#ifndef HAVE_MEMRCHR
+void *
+memrchr( const void *s, int c, size_t n )
+{
+	u_char *b = (u_char *)s, *e = b + n;
+
+	while (--e >= b)
+		if (*e == c)
+			return (void *)e;
+	return 0;
 }
 #endif
 
@@ -325,6 +352,64 @@ expand_strdup( const char *s )
 		return nfstrdup( s );
 }
 
+/* Return value: 0 = ok, -1 = out found in arg, -2 = in found in arg but no out specified */
+int
+map_name( const char *arg, char **result, int reserve, const char *in, const char *out )
+{
+	char *p;
+	int i, l, ll, num, inl, outl;
+
+	l = strlen( arg );
+	if (!in) {
+	  copy:
+		*result = nfmalloc( reserve + l + 1 );
+		memcpy( *result + reserve, arg, l + 1 );
+		return 0;
+	}
+	inl = strlen( in );
+	if (out) {
+		outl = strlen( out );
+		if (inl == outl && !memcmp( in, out, inl ))
+			goto copy;
+	}
+	for (num = 0, i = 0; i < l; ) {
+		for (ll = 0; ll < inl; ll++)
+			if (arg[i + ll] != in[ll])
+				goto fout;
+		num++;
+		i += inl;
+		continue;
+	  fout:
+		if (out) {
+			for (ll = 0; ll < outl; ll++)
+				if (arg[i + ll] != out[ll])
+					goto fnexti;
+			return -1;
+		}
+	  fnexti:
+		i++;
+	}
+	if (!num)
+		goto copy;
+	if (!out)
+		return -2;
+	*result = nfmalloc( reserve + l + num * (outl - inl) + 1 );
+	p = *result + reserve;
+	for (i = 0; i < l; ) {
+		for (ll = 0; ll < inl; ll++)
+			if (arg[i + ll] != in[ll])
+				goto rnexti;
+		memcpy( p, out, outl );
+		p += outl;
+		i += inl;
+		continue;
+	  rnexti:
+		*p++ = arg[i++];
+	}
+	*p = 0;
+	return 0;
+}
+
 static int
 compare_ints( const void *l, const void *r )
 {
@@ -349,11 +434,11 @@ arc4_init( void )
 	unsigned char j, si, dat[128];
 
 	if ((fd = open( "/dev/urandom", O_RDONLY )) < 0 && (fd = open( "/dev/random", O_RDONLY )) < 0) {
-		fprintf( stderr, "Fatal: no random number source available.\n" );
+		error( "Fatal: no random number source available.\n" );
 		exit( 3 );
 	}
 	if (read( fd, dat, 128 ) != 128) {
-		fprintf( stderr, "Fatal: cannot read random number source.\n" );
+		error( "Fatal: cannot read random number source.\n" );
 		exit( 3 );
 	}
 	close( fd );
@@ -384,4 +469,188 @@ arc4_getbyte( void )
 	rs.s[rs.i] = sj;
 	rs.s[rs.j] = si;
 	return rs.s[(si + sj) & 0xff];
+}
+
+static const unsigned char prime_deltas[] = {
+    0,  0,  1,  3,  1,  5,  3,  3,  1,  9,  7,  5,  3,  9, 25,  3,
+    1, 21,  3, 21,  7, 15,  9,  5,  3, 29, 15,  0,  0,  0,  0,  0
+};
+
+int
+bucketsForSize( int size )
+{
+	int base = 4, bits = 2;
+
+	for (;;) {
+		int prime = base + prime_deltas[bits];
+		if (prime >= size)
+			return prime;
+		base <<= 1;
+		bits++;
+	}
+}
+
+#ifdef HAVE_SYS_POLL_H
+static struct pollfd *pollfds;
+#else
+# ifdef HAVE_SYS_SELECT_H
+#  include <sys/select.h>
+# endif
+# define pollfds fdparms
+#endif
+static struct {
+	void (*cb)( int what, void *aux );
+	void *aux;
+#ifndef HAVE_SYS_POLL_H
+	int fd, events;
+#endif
+	int faked;
+} *fdparms;
+static int npolls, rpolls, changed;
+
+static int
+find_fd( int fd )
+{
+	int n;
+
+	for (n = 0; n < npolls; n++)
+		if (pollfds[n].fd == fd)
+			return n;
+	return -1;
+}
+
+void
+add_fd( int fd, void (*cb)( int events, void *aux ), void *aux )
+{
+	int n;
+
+	assert( find_fd( fd ) < 0 );
+	n = npolls++;
+	if (rpolls < npolls) {
+		rpolls = npolls;
+#ifdef HAVE_SYS_POLL_H
+		pollfds = nfrealloc(pollfds, npolls * sizeof(*pollfds));
+#endif
+		fdparms = nfrealloc(fdparms, npolls * sizeof(*fdparms));
+	}
+	pollfds[n].fd = fd;
+	pollfds[n].events = 0; /* POLLERR & POLLHUP implicit */
+	fdparms[n].faked = 0;
+	fdparms[n].cb = cb;
+	fdparms[n].aux = aux;
+	changed = 1;
+}
+
+void
+conf_fd( int fd, int and_events, int or_events )
+{
+	int n = find_fd( fd );
+	assert( n >= 0 );
+	pollfds[n].events = (pollfds[n].events & and_events) | or_events;
+}
+
+void
+fake_fd( int fd, int events )
+{
+	int n = find_fd( fd );
+	assert( n >= 0 );
+	fdparms[n].faked |= events;
+}
+
+void
+del_fd( int fd )
+{
+	int n = find_fd( fd );
+	assert( n >= 0 );
+	npolls--;
+#ifdef HAVE_SYS_POLL_H
+	memmove(pollfds + n, pollfds + n + 1, (npolls - n) * sizeof(*pollfds));
+#endif
+	memmove(fdparms + n, fdparms + n + 1, (npolls - n) * sizeof(*fdparms));
+	changed = 1;
+}
+
+#define shifted_bit(in, from, to) \
+	(((unsigned)(in) & from) \
+		/ (from > to ? from / to : 1) \
+		* (to > from ? to / from : 1))
+
+static void
+event_wait( void )
+{
+	int m, n;
+
+#ifdef HAVE_SYS_POLL_H
+	int timeout = -1;
+	for (n = 0; n < npolls; n++)
+		if (fdparms[n].faked) {
+			timeout = 0;
+			break;
+		}
+	if (poll( pollfds, npolls, timeout ) < 0) {
+		perror( "poll() failed in event loop" );
+		abort();
+	}
+	for (n = 0; n < npolls; n++)
+		if ((m = pollfds[n].revents | fdparms[n].faked)) {
+			assert( !(m & POLLNVAL) );
+			fdparms[n].faked = 0;
+			fdparms[n].cb( m | shifted_bit( m, POLLHUP, POLLIN ), fdparms[n].aux );
+			if (changed) {
+				changed = 0;
+				break;
+			}
+		}
+#else
+	struct timeval *timeout = 0;
+	static struct timeval null_tv;
+	fd_set rfds, wfds, efds;
+	int fd;
+
+	FD_ZERO( &rfds );
+	FD_ZERO( &wfds );
+	FD_ZERO( &efds );
+	m = -1;
+	for (n = 0; n < npolls; n++) {
+		if (fdparms[n].faked)
+			timeout = &null_tv;
+		fd = fdparms[n].fd;
+		if (fdparms[n].events & POLLIN)
+			FD_SET( fd, &rfds );
+		if (fdparms[n].events & POLLOUT)
+			FD_SET( fd, &wfds );
+		FD_SET( fd, &efds );
+		if (fd > m)
+			m = fd;
+	}
+	if (select( m + 1, &rfds, &wfds, &efds, timeout ) < 0) {
+		perror( "select() failed in event loop" );
+		abort();
+	}
+	for (n = 0; n < npolls; n++) {
+		fd = fdparms[n].fd;
+		m = fdparms[n].faked;
+		if (FD_ISSET( fd, &rfds ))
+			m |= POLLIN;
+		if (FD_ISSET( fd, &wfds ))
+			m |= POLLOUT;
+		if (FD_ISSET( fd, &efds ))
+			m |= POLLERR;
+		if (m) {
+			fdparms[n].faked = 0;
+			fdparms[n].cb( m, fdparms[n].aux );
+			if (changed) {
+				changed = 0;
+				break;
+			}
+		}
+	}
+#endif
+}
+
+void
+main_loop( void )
+{
+	while (npolls)
+		event_wait();
 }
