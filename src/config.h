@@ -1,16 +1,7 @@
-This package was debianized by Tommi Virtanen <tv@debian.org> and is now
-maintained by Nicolas Boullis <nboullis@debian.org>.
-
-It was downloaded from http://isync.sourceforge.net/
-
-Upstream Author: Michael R. Elkins <me@mutt.org>,
-                 Oswald Buddenhagen <ossi@users.sf.net>
-
-Copyright:
-
- * isync - IMAP4 to maildir mailbox synchronizer
+/*
+ * mbsync - mailbox synchronizer
  * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
- * Copyright (C) 2002-2006 Oswald Buddenhagen <ossi@users.sf.net>
+ * Copyright (C) 2002-2006,2010-2012 Oswald Buddenhagen <ossi@users.sf.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,8 +16,30 @@ Copyright:
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * As a special exception, isync may be linked with the OpenSSL library,
+ * As a special exception, mbsync may be linked with the OpenSSL library,
  * despite that library's more restrictive license.
+ */
 
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#include "common.h"
+
+typedef struct conffile {
+	const char *file;
+	FILE *fp;
+	char *buf;
+	int bufl;
+	int line;
+	int err;
+	char *cmd, *val, *rest;
+} conffile_t;
+
+int parse_bool( conffile_t *cfile );
+int parse_int( conffile_t *cfile );
+int parse_size( conffile_t *cfile );
+int getcline( conffile_t *cfile );
+int merge_ops( int cops, int ops[] );
+int load_config( const char *filename, int pseudo );
+
+#endif

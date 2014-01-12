@@ -1,26 +1,52 @@
-AC_INIT(src/isync.h)
-AM_CONFIG_HEADER(config.h)
-AM_INIT_AUTOMAKE(isync, 1.0.6)
+AC_INIT([isync], [1.1.0])
+AC_CONFIG_HEADERS([autodefs.h])
+AM_INIT_AUTOMAKE
 
 AM_MAINTAINER_MODE
 
-AM_PROG_CC_STDC
+AC_PROG_CC
 if test "$GCC" = yes; then
-    CFLAGS="$CFLAGS -pipe -W -Wall -Wshadow -Wstrict-prototypes"
+    CFLAGS="$CFLAGS -pipe -W -Wall -Wshadow -Wstrict-prototypes -ansi -pedantic -Wno-overlength-strings"
 fi
 
-AC_CHECK_HEADERS([sys/filio.h])
-AC_CHECK_FUNCS(vasprintf)
+CPPFLAGS="$CPPFLAGS -D_GNU_SOURCE"
+
+AC_CACHE_CHECK([whether strftime supports %z], ob_cv_strftime_z,
+    [AC_TRY_RUN(
+[#include <time.h>
+#include <string.h>
+
+int main(void)
+{
+    time_t t = 0;
+    char buf[32];
+    strftime(buf, sizeof(buf), "%z", localtime(&t));
+    return !(buf[0] == '+' || buf[0] == '-');
+}
+], [ob_cv_strftime_z=yes], [ob_cv_strftime_z=no], [ob_cv_strftime_z="yes (assumed)"])])
+if test "x$ob_cv_strftime_z" = x"no"; then
+    AC_MSG_ERROR([libc lacks necessary feature])
+fi
+
+AC_CHECK_HEADERS(sys/poll.h sys/select.h)
+AC_CHECK_FUNCS(vasprintf memrchr)
 
 AC_CHECK_LIB(socket, socket, [SOCK_LIBS="-lsocket"])
 AC_CHECK_LIB(nsl, inet_ntoa, [SOCK_LIBS="$SOCK_LIBS -lnsl"])
 AC_SUBST(SOCK_LIBS)
 
-m4_ifdef([AS_HELP_STRING], , [m4_define([AS_HELP_STRING], m4_defn([AC_HELP_STRING]))])
+have_ipv6=true
+sav_LDFLAGS=$LDFLAGS
+LDFLAGS="$LDFLAGS $SOCK_LIBS"
+AC_CHECK_FUNCS(getaddrinfo inet_ntop, , [have_ipv6=false])
+LDFLAGS=$sav_LDFLAGS
+if $have_ipv6; then
+    AC_DEFINE(HAVE_IPV6, 1, [if your libc has IPv6 support])
+fi
 
 have_ssl_paths=
 AC_ARG_WITH(ssl,
-  AS_HELP_STRING([--with-ssl[=PATH]], [where to look for SSL [detect]]),
+  AC_HELP_STRING([--with-ssl[=PATH]], [where to look for SSL [detect]]),
   [ob_cv_with_ssl=$withval])
 if test "x$ob_cv_with_ssl" != xno; then
   case $ob_cv_with_ssl in
@@ -74,7 +100,7 @@ if test "x$ob_cv_with_ssl" != xno; then
 fi
 AC_SUBST(SSL_LIBS)
 
-AC_CACHE_CHECK([for Berkley DB 4.2], ac_cv_berkdb4,
+AC_CACHE_CHECK([for Berkley DB >= 4.2], ac_cv_berkdb4,
   [ac_cv_berkdb4=no
    AC_TRY_LINK([#include <db.h>],
                [DB *db;
@@ -82,21 +108,19 @@ AC_CACHE_CHECK([for Berkley DB 4.2], ac_cv_berkdb4,
 	        db->open(db, 0, "foo", "foo", DB_HASH, DB_CREATE, 0)],
 	       [ac_cv_berkdb4=yes])])
 if test "x$ac_cv_berkdb4" = xno; then
-  AC_MSG_ERROR([Berkley DB 4.2 not found.
-You must install libdb4.2 including the respective development files/headers.])
+  AC_MSG_ERROR([Berkley DB >= 4.2 not found.])
 fi
 
 AC_ARG_ENABLE(compat,
-  AS_HELP_STRING([--disable-compat], [don't include isync compatibility wrapper [no]]),
+  AC_HELP_STRING([--disable-compat], [don't include isync compatibility wrapper [no]]),
   [ob_cv_enable_compat=$enableval])
 if test "x$ob_cv_enable_compat" != xno; then
   AC_CHECK_FUNCS(getopt_long)
 fi
 AM_CONDITIONAL(with_compat, test "x$ob_cv_enable_compat" != xno)
 
-AM_CONDITIONAL(in_source_build, test "x$srcdir" = x.)
-
-AC_OUTPUT(Makefile src/Makefile src/compat/Makefile isync.spec)
+AC_CONFIG_FILES([Makefile src/Makefile src/compat/Makefile isync.spec])
+AC_OUTPUT
 
 if test -n "$have_ssl_paths"; then
     AC_MSG_RESULT([

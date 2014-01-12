@@ -34,19 +34,20 @@ isync executable still exists; it is a compatibility wrapper around mbsync.
 	* Supports TLS/SSL via imaps: (port 993) and STARTTLS (RFC2595)
 	* Supports CRAM-MD5 (RFC2195) for authentication
 	* Supports NAMESPACE (RFC2342) for simplified configuration
-	* Pipelining for maximum speed (currently only partially implemented)
+	* Pipelining for maximum speed
 
 * Compatibility
 
     isync should work fairly well with any IMAP4 compliant server;
-    particularily efficient with those that support the UIDPLUS and LITERAL+
-    extensions.
+    servers that support the UIDPLUS and LITERAL+ extensions are most
+    efficient.
 
     Courier 1.4.3 is known to be buggy, version 1.7.3 works fine.
 
     c-client (UW-IMAP, Pine) is mostly fine, but versions less than 2004a.352
     tend to change UIDVALIDITY pretty often when used with unix/mbox mailboxes,
     making isync refuse synchronization.
+    M$ Exchange (up to 2010 at least) occasionally exposes the same problem.
     The "cure" is to simply copy the new UIDVALIDITY from the affected
     mailbox to mbsync's state file. This is a Bad Hack (TM), but it works -
     use at your own risk (if the UIDVALIDITY change was genuine, this will
@@ -56,16 +57,22 @@ isync executable still exists; it is a compatibility wrapper around mbsync.
 * Platforms
 
     At some point, ``isync'' has successfully run on:
-    Linux, Solaris 2.7, OpenBSD 2.8, FreeBSD 4.3, Cygwin
+    Linux, Solaris 2.7, OpenBSD 2.8, FreeBSD 4.3.
+
+    Note that Cygwin cannot be reasonably supported due to restrictions
+    of the Windows file system.
 
 * Requirements
 
+    Berkley DB 4.2+
     OpenSSL for TLS/SSL support (optional)
 
 * Installation
 
+    ./autogen.sh (only when building from git)
     ./configure
-    make install
+    make
+    sudo make install
 
 * Help
 
