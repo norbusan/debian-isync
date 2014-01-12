@@ -7,20 +7,9 @@ Last-Update: 2013-08-31
 
 --- a/Makefile.am
 +++ b/Makefile.am
-@@ -77,4 +77,4 @@
- 	CFLAGS="-O2 -mcpu=i686" rpm -ba --clean isync.spec
- 
- docdir = $(datadir)/doc/isync
--doc_DATA = README TODO NEWS ChangeLog AUTHORS
-+doc_DATA = README TODO NEWS AUTHORS
---- a/Makefile.in
-+++ b/Makefile.in
-@@ -296,7 +296,7 @@
-         print $$log."\n"; \
-     }
+@@ -74,4 +74,4 @@
+ rpm-ia32: dist
+ 	CFLAGS="-O2 -m32 -march=i686" rpmbuild --target i686-unknown-linux --clean -ta $(PACKAGE)-$(VERSION).tar.gz
  
 -doc_DATA = README TODO NEWS ChangeLog AUTHORS
 +doc_DATA = README TODO NEWS AUTHORS
- all: config.h
- 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
- 
