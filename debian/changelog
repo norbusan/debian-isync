@@ -1,4 +1,4 @@
-isync (1.0.6-1) UNRELEASED; urgency=low
+isync (1.1.0-1) UNRELEASED; urgency=low
 
   * New upstream release (Closes: #674403)
     - Fix overlapping memcpy (Closes: #650373)
