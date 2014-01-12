@@ -6,7 +6,7 @@ Uploaders: Theodore Y. Ts'o <tytso@mit.edu>,
  Alessandro Ghedini <ghedo@debian.org>
 Standards-Version: 3.9.5
 Build-Depends: debhelper (>= 9),
- autotools-dev,
+ dh-autoreconf,
  libdb-dev,
  libssl-dev
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=collab-maint/isync.git
