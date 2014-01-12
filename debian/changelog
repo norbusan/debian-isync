@@ -1,4 +1,4 @@
-isync (1.1.0-1) UNRELEASED; urgency=low
+isync (1.1.0-1) unstable; urgency=low
 
   * New upstream release (Closes: #674403)
     - Fix overlapping memcpy (Closes: #650373)
@@ -9,7 +9,6 @@ isync (1.1.0-1) UNRELEASED; urgency=low
   * Switch to short-form dh rules, remove useless files
   * Switch to 3.0 (quilt) source format
   * Remove empty patches/ directory
-  * Bump Standards-Version to 3.9.4
   * Drop local source modifications
   * Update short/long descriptions
   * Add 01_fix-manpages.patch to fix manpage errors and typos
@@ -18,8 +17,10 @@ isync (1.1.0-1) UNRELEASED; urgency=low
   * Add Vcs-* fields
   * Add 02_fix-duplicate-changelog.patch to avoid duplicate changelog install
   * Add myself to Uploaders
+  * Bump Standards-Version to 3.9.5 (no changes needed)
+  * Use dh-autoreconf instead of autotools-dev
 
- -- Alessandro Ghedini <ghedo@debian.org>  Thu, 29 Aug 2013 20:39:17 +0200
+ -- Alessandro Ghedini <ghedo@debian.org>  Sun, 12 Jan 2014 16:35:52 +0100
 
 isync (1.0.4-2.2) unstable; urgency=low
 
