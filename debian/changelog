@@ -1,8 +1,11 @@
-isync (1.1.0-2) UNRELEASED; urgency=medium
+isync (1.1.0-2) unstable; urgency=medium
 
-  * Drop 02_fix-duplicate-changelog.patch (rm the file after installation instead)
+  * Drop 02_fix-duplicate-changelog.patch
+    (rm the file after installation instead)
+  * Update 01_fix-manpages.patch
+  * Add 02_fix-empty-folder-sync.patch (Closes: #738873)
 
- -- Alessandro Ghedini <ghedo@debian.org>  Mon, 03 Feb 2014 20:15:47 +0100
+ -- Alessandro Ghedini <ghedo@debian.org>  Fri, 14 Feb 2014 20:41:49 +0100
 
 isync (1.1.0-1) unstable; urgency=low
 
