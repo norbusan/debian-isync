@@ -1,3 +1,304 @@
+2014-04-13 15:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	don't lie about the default of User
+
+	unlike the isync wrapper, mbsync does not have a default for the IMAP
+	user. the remote user seldomly matches the local one, so "forwarding" it
+	is more confusing than helpful.
+
+	CCMAIL: 744389@bugs.debian.org
+
+2014-04-12 17:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	don't forget to reset message counts when skipping scan
+
+	amends b6949c64d2.
+
+	CCMAIL: 744259@bugs.debian.org
+
+2014-04-12 17:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	remove apparently pointless resetting of recent message count
+
+	past this point, it's not used for anything anyway.
+
+2014-04-12 16:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/convert.c:
+
+	error-check renaming of uid mapping database
+
+	for pedantry.
+
+	found by coverity.
+
+2014-04-12 16:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/convert.c:
+
+	error-check reading of old uidvalidity and maxuid files
+
+	found by coverity.
+
+2014-04-12 16:31  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	error-check committing of sync state
+
+	a failure here is rather unlikely, but let's be pedantic.
+	a failure is not fatal (we'll just enter the journal replay path next
+	time), so only print warnings.
+
+	found by coverity.
+
+2014-04-12 16:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	better error messages for sync state and journal related errors
+
+	we can make perfectly good use of errno here.
+
+2014-04-12 16:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	remove pointless/counterproductive "Disk full?" error message suffixes
+
+	the affected functions will set errno to ENOSPC when necessary.
+
+2014-04-12 14:56  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	fix "inverse copy&pasto" in account labeling code
+
+	the code was copied and the original adjusted ... but not quite
+	completely.
+	this means that clashing server names never really worked since - not
+	that i would have expected this to be a particularly common
+	configuration to start with. :D
+
+	also added comments explaining why there are two implementations of the
+	same thing.
+
+	amends aea4be19e3 (anno 2006).
+
+	found by coverity.
+
+2014-04-12 14:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/config.c:
+
+	assert !where implying !pseudo
+
+	to help poor coverity.
+
+2014-04-12 13:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't crash in message expiration debug print
+
+	we would try to print the uids from the non-existing srec of unpaired
+	messages while preparing expiration.
+	this would happen only if a) MaxMessages was configured and b) new
+	messages appeared on the slave but we were not pushing, so it's a bit of
+	a corner case.
+
+	found by coverity.
+
+2014-04-12 13:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	fix segfault on passing --{create,expunge}-{master,slave}
+
+	stupid copy&pasto.
+
+	found by coverity.
+
+2014-04-12 13:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't crash on malformed response code
+
+	this would happen in the absurd corner case that the response code is
+	properly terminated with a closing bracket, but the atom itself is an
+	unterminated double-quoted string.
+
+	NOT found by coverity.
+
+2014-04-12 12:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't crash on truncated LIST response
+
+	found by coverity.
+
+2014-04-12 11:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/main.c:
+
+	remove pointless pointer assignment
+
+2014-04-12 11:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, mdconvert.c:
+
+	fix hypothetical buffer overflows
+
+	if something managed to make the maildir .uidvalidity files big enough
+	(possible only by appending garbage or scrambling them alltogether), we
+	would overflow the read buffer by one when appending the terminating
+	null.
+	this is not expected to have any real-world impact.
+
+	found by coverity.
+
+2014-04-12 10:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, mdconvert.c:
+
+	close a bunch of fd leaks in error paths
+
+	found by coverity.
+
+2014-03-19 09:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/util.c:
+
+	actually use prime numbers for all hash bucket sizes
+
+	for some reason lost in history, the prime_deltas were actually wrong,
+	leading to using composite numbers.
+	the right sequence is available at http://oeis.org/A092131.
+
+2014-03-19 09:09  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/config.c:
+
+	fix zero MaxSize override in Channels
+
+	REFMAIL: CA+Tk8fzb9i9LrC_k4G978c5XR5urNz_s0fpOn_-6EsdrBnEzSQ@mail.gmail.com
+
+2014-03-10 10:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/: config.c, isync.h, util.c:
+
+	rework maildir store mapping
+
+	the trivial approach of having "home" and "root" stores produced ugly
+	results, and totally failed with the introduction of nested folder
+	handling.
+	instead, create a store per local directory, just as one would manually.
+
+	CCMAIL: 737708@bugs.debian.org
+
+2014-03-10 10:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	don't needlessly quote strings
+
+2014-03-10 10:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/main.c:
+
+	don't needlessly spell out INBOX
+
+2014-03-09 15:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	write Sync and Expunge to global section if applicable
+
+	makes for leaner Channel sections.
+
+	note: the global delete and expunge variables exist so the command line
+	can override the config file despite the otherwise backwards behavior.
+
+2014-03-09 14:56  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/config.c:
+
+	don't bother checking impossible condition
+
+	the config readear already verified that at least host or tunnel are
+	set.
+
+2014-02-08 12:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix crash on store without prior fetch with non-UIDPLUS servers
+
+	we'd never initialize the message list append pointer, so
+	imap_find_new_msgs()'s FETCH would go awry.
+
+	REFMAIL: <20140207101719.GB17125@mac.home>
+
+2014-02-02 11:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	remove pointless use of AI_V4MAPPED flag
+
+	this flag is ineffective if ai_family is not explicitly AF_INET6.
+	on top of that, attempting to use it breaks on FreeBSD.
+
+2014-01-25 12:19  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	fix typos
+
+2014-01-25 10:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't error out if we don't get an X-TUID header
+
+	the BODY[] item in the FETCH response corresponds to what we requested,
+	and its presence doesn't imply that it actually contains anything useful
+	- new messages may appear in the mailbox in addition to those we stored
+	ourselves, and these will obviously have no TUID.
+
+2014-01-02 19:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, src/common.h, src/drv_imap.c, src/util.c:
+
+	make date parsing portable, take 2
+
+	the global timezone variable is glibc-specific.
+	so use timegm() instead of mktime() for the conversion.
+	as that is specific to the BSDs and glibc, provide a fallback.
+	amends 62a6099.
+
+2014-01-02 18:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, sync.c:
+
+	fix _POSIX_SYNCHRONIZED_IO usage
+
+	it can be -1 for unsupported, or 0 for runtime detection (which we don't
+	do).
+
+2014-01-02 20:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
 2013-12-08 21:29  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* README, src/mbsyncrc.sample:
