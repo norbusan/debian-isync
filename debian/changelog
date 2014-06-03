@@ -1,3 +1,12 @@
+isync (1.1.1-1) UNRELEASED; urgency=medium
+
+  * New upstream release
+    - Don't lie about the default of User (Closes: #744389)
+    - Don't forget to reset message counts when skipping scan (Closes: #744259)
+    - Rework maildir store mapping (Closes: #737708)
+
+ -- Alessandro Ghedini <ghedo@debian.org>  Tue, 03 Jun 2014 20:46:00 +0200
+
 isync (1.1.0-2) unstable; urgency=medium
 
   * Drop 02_fix-duplicate-changelog.patch
