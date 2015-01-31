@@ -147,7 +147,7 @@ typedef struct sync_rec {
 typedef struct {
 	int t[2];
 	void (*cb)( int sts, void *aux ), *aux;
-	char *dname, *jname, *nname, *lname;
+	char *dname, *jname, *nname, *lname, *box_name[2];
 	FILE *jfp, *nfp;
 	sync_rec_t *srecs, **srecadd;
 	channel_conf_t *chan;
@@ -315,7 +315,7 @@ msg_fetched( int sts, void *aux )
 					if (c == '\r')
 						lcrs++;
 					else if (c == '\n') {
-						if (!memcmp( fmap + start, "X-TUID: ", 8 )) {
+						if (starts_with( fmap + start, len - start, "X-TUID: ", 8 )) {
 							extra = (sbreak = start) - (ebreak = i);
 							goto oke;
 						}
@@ -497,11 +497,12 @@ cancel_done( void *aux )
 
 	svars->state[t] |= ST_CANCELED;
 	if (svars->state[1-t] & ST_CANCELED) {
-		if (svars->lfd) {
+		if (svars->lfd >= 0) {
 			Fclose( svars->nfp, 0 );
 			Fclose( svars->jfp, 0 );
 			sync_bail( svars );
 		} else {
+			/* Early failure during box selection. */
 			sync_bail2( svars );
 		}
 	}
@@ -603,9 +604,9 @@ sync_boxes( store_t *ctx[], const char *names[], channel_conf_t *chan,
 			(!names[t] || (ctx[t]->conf->map_inbox && !strcmp( ctx[t]->conf->map_inbox, names[t] ))) ?
 				"INBOX" : names[t];
 		if (!ctx[t]->conf->flat_delim) {
-			ctx[t]->name = nfstrdup( ctx[t]->orig_name );
-		} else if (map_name( ctx[t]->orig_name, &ctx[t]->name, 0, "/", ctx[t]->conf->flat_delim ) < 0) {
-			error( "Error: canonical mailbox name '%s' contains flattened hierarchy delimiter\n", ctx[t]->name );
+			svars->box_name[t] = nfstrdup( ctx[t]->orig_name );
+		} else if (map_name( ctx[t]->orig_name, &svars->box_name[t], 0, "/", ctx[t]->conf->flat_delim ) < 0) {
+			error( "Error: canonical mailbox name '%s' contains flattened hierarchy delimiter\n", ctx[t]->orig_name );
 			svars->ret = SYNC_FAIL;
 			sync_bail3( svars );
 			return;
@@ -619,7 +620,7 @@ sync_boxes( store_t *ctx[], const char *names[], channel_conf_t *chan,
 	sync_ref( svars );
 	for (t = 0; t < 2; t++) {
 		info( "Selecting %s %s...\n", str_ms[t], ctx[t]->orig_name );
-		svars->drv[t]->select( ctx[t], (chan->ops[t] & OP_CREATE) != 0, box_selected, AUX );
+		svars->drv[t]->select( ctx[t], svars->box_name[t], (chan->ops[t] & OP_CREATE) != 0, box_selected, AUX );
 		if (check_cancel( svars ))
 			break;
 	}
@@ -664,11 +665,11 @@ box_selected( int sts, void *aux )
 		}
 		nfasprintf( &svars->dname, "%s/." EXE "state", ctx[S]->path );
 	} else {
-		csname = clean_strdup( ctx[S]->name );
+		csname = clean_strdup( svars->box_name[S] );
 		if (chan->sync_state)
 			nfasprintf( &svars->dname, "%s%s", chan->sync_state, csname );
 		else {
-			cmname = clean_strdup( ctx[M]->name );
+			cmname = clean_strdup( svars->box_name[M] );
 			nfasprintf( &svars->dname, "%s:%s:%s_:%s:%s", global_conf.sync_state,
 			            chan->stores[M]->name, cmname, chan->stores[S]->name, csname );
 			free( cmname );
@@ -802,7 +803,7 @@ box_selected( int sts, void *aux )
 				error( "Error: incomplete journal header in %s\n", svars->jname );
 				goto jbail;
 			}
-			if (memcmp( buf, JOURNAL_VERSION "\n", strlen(JOURNAL_VERSION) + 1 )) {
+			if (!equals( buf, t, JOURNAL_VERSION "\n", strlen(JOURNAL_VERSION) + 1 )) {
 				error( "Error: incompatible journal version "
 				                 "(got %.*s, expected " JOURNAL_VERSION ")\n", t - 1, buf );
 				goto jbail;
@@ -1505,7 +1506,8 @@ box_loaded( int sts, void *aux )
 	if (UseFSync)
 		fdatasync( fileno( svars->jfp ) );
 	for (t = 0; t < 2; t++) {
-		Fprintf( svars->jfp, "%c %d\n", "{}"[t], svars->ctx[t]->uidnext );
+		svars->newuid[t] = svars->ctx[t]->uidnext;
+		Fprintf( svars->jfp, "%c %d\n", "{}"[t], svars->newuid[t] );
 		for (tmsg = svars->ctx[1-t]->msgs; tmsg; tmsg = tmsg->next) {
 			if ((srec = tmsg->srec) && srec->tuid[0]) {
 				svars->new_total[t]++;
@@ -1603,7 +1605,7 @@ msgs_copied( sync_vars_t *svars, int t )
 
 	if (svars->state[t] & ST_FIND_NEW) {
 		debug( "finding just copied messages on %s\n", str_ms[t] );
-		svars->drv[t]->find_new_msgs( svars->ctx[t], msgs_found_new, AUX );
+		svars->drv[t]->find_new_msgs( svars->ctx[t], svars->newuid[t], msgs_found_new, AUX );
 	} else {
 		msgs_new_done( svars, t );
 	}
@@ -1918,8 +1920,8 @@ sync_bail2( sync_vars_t *svars )
 static void
 sync_bail3( sync_vars_t *svars )
 {
-	free( svars->ctx[M]->name );
-	free( svars->ctx[S]->name );
+	free( svars->box_name[M] );
+	free( svars->box_name[S] );
 	sync_deref( svars );
 }
 
