@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Nicolas Boullis <nboullis@debian.org>
 Uploaders: Theodore Y. Ts'o <tytso@mit.edu>,
  Alessandro Ghedini <ghedo@debian.org>
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 Build-Depends: debhelper (>= 9),
  dh-autoreconf,
  libdb-dev,
