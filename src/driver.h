@@ -87,7 +87,6 @@ typedef struct store {
 
 	/* currently open mailbox */
 	const char *orig_name; /* foreign! maybe preset? */
-	char *name; /* foreign! maybe preset? */
 	char *path; /* own */
 	message_t *msgs; /* own */
 	int uidvalidity;
@@ -168,9 +167,9 @@ struct driver {
 	 * needed or available operations. */
 	void (*prepare_opts)( store_t *ctx, int opts );
 
-	/* Open the mailbox ctx->name. Optionally create missing boxes.
+	/* Open the mailbox name. Optionally create missing boxes.
 	 * As a side effect, this should resolve ctx->path if applicable. */
-	void (*select)( store_t *ctx, int create,
+	void (*select)( store_t *ctx, const char *name, int create,
 	               void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Load the message attributes needed to perform the requested operations.
@@ -193,7 +192,7 @@ struct driver {
 	/* Index the messages which have newly appeared in the mailbox, including their
 	 * temporary UID headers. This is needed if store_msg() does not guarantee returning
 	 * a UID; otherwise the driver needs to implement only the OPEN_FIND flag. */
-	void (*find_new_msgs)( store_t *ctx,
+	void (*find_new_msgs)( store_t *ctx, int newuid,
 	                       void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Add/remove the named flags to/from the given message. The message may be either

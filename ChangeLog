@@ -1,3 +1,276 @@
+2015-01-11 13:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, sync.c:
+
+	fix UID assignment with some non-UIDPLUS servers
+
+	the seznam.cz IMAP server seems very eager to send UIDNEXT responses
+	despite not supporting UIDPLUS. this doesn't appear to be a particularly
+	sensible combination, but it's valid nonetheless.
+
+	however, that means that we need to save the UIDNEXT value before we
+	start storing messages, lest imap_find_new_msgs() will simply overlook
+	them. we do that outside the driver, in an already present field - this
+	actually makes the main path more consistent with the journal recovery
+	path.
+
+	analysis by Tomas Tintera <trosos@seznam.cz>.
+
+	REFMAIL: 20141220215032.GA10115@kyvadlo.trosos.seznam.cz
+
+2015-01-02 11:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix conditional for early failure in cancel_done()
+
+2015-01-02 10:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	don't leave 2nd store in limbo if opening 1st store fails synchronously
+
+	we can't leave the store FRESH, as otherwise the error handling code
+	will assume it is still being opened and will return to the main loop.
+	depending on the config this would cause an immediate termination or an
+	indefinite wait.
+
+2014-11-08 12:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: socket.c, socket.h:
+
+	fix acceptance of trusted SSL certs
+
+	we should make no assumptions about the layout of OpenSSL's certificate
+	store, in particular when they are wrong. so copy the interesting part
+	instead of "deep-linking" into it.
+
+	this code is uglier than it should be, but OpenSSL's extensive use of
+	macros to manage data types would force us to include the ssl headers
+	into our headers otherwise, which would be even uglier.
+
+	REFMAIL: <545442CC.9020400@nodivisions.com>
+
+2014-10-04 16:26  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, sync.c:
+
+	fix memory management of current mailbox name
+
+	it was a stupid idea to store the pointer to a variable we need to
+	dispose in a structure which has its own lifetime.
+
+2014-10-04 15:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, src/common.h, src/compat/config.c,
+	  src/compat/isync.h, src/compat/util.c, src/drv_imap.c,
+	  src/drv_maildir.c, src/main.c, src/sync.c, src/util.c:
+
+	stop abusing memcmp()
+
+	memcmp() is unfortunately not guaranteed to read forward byte-by-byte,
+	which means that the clever use as a strncmp() without the pointless
+	strlen()s is not permitted, and can actually misbehave with
+	SSE-optimized string functions.
+
+	so implement proper equals() and starts_with() functions. as a bonus,
+	the calls are less cryptic.
+
+2014-10-04 11:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	permit IMAP Stores with explicitly empty Path
+
+	this is useful if the server sends an unhelpful NAMESPACE like
+	"INBOX." (which precludes clean use of Patterns with the real INBOX).
+
+2014-10-04 13:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't attempt to filter LIST response if there is no Path
+
+	we won't filter anything in that case anyway.
+
+2014-10-04 10:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_imap.c, drv_maildir.c:
+
+	permit Maildir Stores without a Path
+
+	it is perfectly reasonable to have a Store which has only an Inbox.
+
+2014-10-04 13:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	use resolved Path for initial filtering of LIST response
+
+	otherwise we'd ignore NAMESPACE, and funny things could happen.
+
+2014-10-04 15:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	consider unexpected structure of NAMESPACE fatal
+
+2014-10-04 09:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	ignore INBOX only in Path itself, not its subfolders
+
+	a box foo/INBOX cannot be mistaken for the INBOX, so there is no point
+	in filtering these out.
+
+2014-07-12 12:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	use \fB and \fI consistently
+
+	notably, the docu for the Sync option had it mixed up in the
+	description.
+
+2014-07-05 21:11  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	complain about RequireSSL with no SSL versions enabled
+
+2014-07-05 21:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	actually use STARTTLS if only TLSv1.1 or TLSv1.2 is enabled
+
+2014-07-05 21:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	clarify error message about missing connection details
+
+2014-07-05 21:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	make store/account error messages less redundant
+
+	this will become more relevant when more are added.
+
+2014-07-05 20:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	clarify effect of Tunnel on Host and Port
+
+2014-07-05 20:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	don't ignore RequireSSL for PREAUTHenticated connections
+
+	such connections don't support STARTTLS. that is reasonable, as whatever
+	makes the connection preauthenticated (typically a Tunnel used to launch
+	imapd via a shell login) must already rely on the connection's security.
+	consequently, we would not try to use STARTTLS with such connections.
+	unfortunately, we'd also skip the RequireSSL check as a side effect.
+
+	this means that a rogue server (via a MITM attack) could simply offer a
+	preauthenticated connection to make us not use SSL, and thus bypass
+	server authentication. as a result, we could send potentially sensitive
+	data to the attacker:
+	- with Patterns used, we would send a LIST command which reveals the
+	  remote Path setting. this isn't very useful to an attacker. also, IMAP
+	  Accounts usually rely on the server-provided NAMESPACE to start with.
+	- with Create enabled for the remote Store, we would upload messages
+	  from newly appeared local folders. this isn't a very likely situation,
+	  unless the attacker manages to convince the victim to move/copy
+	  interesting mails to a new folder right before the attack.
+	- with Expunge enabled for the local Store, previously synchronized
+	  folders would be wiped. however, this would require the attacker to
+	  know the correct UIDVALIDITY of each remote folder, which would
+	  require incredible luck or convincing the victim to disclose them.
+	  the first mismatch would likely tip off the victim.
+
+	in practice, someone with the level of technical and social engineering
+	skills required for this attack would very likely find more attractive
+	attack vectors. therefore, i don't consider this a particularly serious
+	issue.
+
+	configurations with UseIMAPS enabled or using a secure Tunnel were not
+	affected to start with.
+
+	a side effect of this fix is that most users of Tunnel will now need to
+	explicitly set RequireSSL to false.
+	an alternative approach would be defaulting all SSL-related settings to
+	off when Tunnel is used. this would be too invasive for a patch release,
+	but i'll consider it for 1.2.
+
+	see also CVE-2014-2567 for the Trojita MUA.
+
+2014-07-05 20:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* .gitignore:
+
+	ignore coverity state directory
+
+2014-07-02 06:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	initialize store_t::name
+
+	the field is marked foreign (for the drivers), so a recycled store may
+	contain an old pointer in it. that would make our error path crash.
+
+	REFMAIL: CAF_KswU7aBS7unnK+rdZy1PG_8SZUAW=tcg75HixDLLE0w3Lhw@mail.gmail.com
+
+2014-07-02 06:40  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	actually print the faulty mailbox name, not some garbage
+
+	REFMAIL: CAF_KswU7aBS7unnK+rdZy1PG_8SZUAW=tcg75HixDLLE0w3Lhw@mail.gmail.com
+
+2014-06-28 12:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2014-06-28 09:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	detect inconsistent state of highest assigned UID
+
+	the highest assigned UID must always be at least as high as the highest
+	actually found UID, as otherwise we'd hand out duplicate UIDs at some
+	point. also, getting into such a state in the first place indicates some
+	potentially serious trouble, or at least external interference (e.g.,
+	moving/copying a message from another folder without giving it a
+	pristine filename).
+
+	REFMAIL: 20140626211831.GA11590@sie.protva.ru
+
+2014-06-28 09:04  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	zero-terminate imap literals
+
+	now that we properly support literals for strings, we must expect that
+	the consumer code will use them as strings.
+
+	amends fc77feacc.
+
+	discovered by Armands Liepins <armandsl@gmail.com>
+
+	REFMAIL: CAF_KswXoxdm7KXnWW4b_1odf=XsE4qRqRN4AsecwcPF1d+dSTA@mail.gmail.com
+
 2014-04-13 15:07  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/mbsync.1:

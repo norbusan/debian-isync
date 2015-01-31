@@ -45,6 +45,7 @@ typedef struct imap_server_conf {
 	char *pass_cmd;
 	int max_in_progress;
 #ifdef HAVE_LIBSSL
+	char use_ssl;
 	char require_ssl;
 	char require_cram;
 #endif
@@ -87,6 +88,7 @@ typedef struct imap_store {
 	store_t gen;
 	const char *label; /* foreign */
 	const char *prefix;
+	const char *name;
 	int ref_count;
 	/* trash folder's existence is not confirmed yet */
 	enum { TrashUnknown, TrashChecking, TrashKnown } trashnc;
@@ -149,6 +151,11 @@ struct imap_cmd_out_uid {
 	void (*callback)( int sts, int uid, void *aux );
 	void *callback_aux;
 	int out_uid;
+};
+
+struct imap_cmd_find_new {
+	struct imap_cmd_simple gen;
+	int uid;
 };
 
 struct imap_cmd_refcounted_state {
@@ -256,7 +263,7 @@ send_imap_cmd( imap_store_t *ctx, struct imap_cmd *cmd )
 	if (DFlags & VERBOSE) {
 		if (ctx->num_in_progress)
 			printf( "(%d in progress) ", ctx->num_in_progress );
-		if (memcmp( cmd->cmd, "LOGIN", 5 ))
+		if (!starts_with( cmd->cmd, -1, "LOGIN", 5 ))
 			printf( "%s>>> %s", ctx->label, buf );
 		else
 			printf( "%s>>> %d LOGIN <user> <pass>\n", ctx->label, cmd->tag );
@@ -687,7 +694,8 @@ parse_imap_list( imap_store_t *ctx, char **sp, parse_list_state_t *sts )
 			if (*s != '}' || *++s)
 				goto bail;
 
-			s = cur->val = nfmalloc( cur->len );
+			s = cur->val = nfmalloc( cur->len + 1 );
+			s[cur->len] = 0;
 
 		  getbytes:
 			bytes -= socket_read( &ctx->conn, s, bytes );
@@ -730,7 +738,7 @@ parse_imap_list( imap_store_t *ctx, char **sp, parse_list_state_t *sts )
 				if (sts->level && *s == ')')
 					break;
 			cur->len = s - p;
-			if (cur->len == 3 && !memcmp ("NIL", p, 3))
+			if (equals( p, cur->len, "NIL", 3 ))
 				cur->val = NIL;
 			else {
 				cur->val = nfmalloc( cur->len + 1 );
@@ -924,7 +932,7 @@ parse_fetch_rsp( imap_store_t *ctx, list_t *list, char *s ATTR_UNUSED )
 					tmp = tmp->next;
 					if (!is_atom( tmp ))
 						goto bfail;
-					if (!memcmp( tmp->val, "X-TUID: ", 8 ))
+					if (starts_with( tmp->val, tmp->len, "X-TUID: ", 8 ))
 						tuid = tmp->val + 8;
 				} else {
 				  bfail:
@@ -1061,12 +1069,12 @@ parse_list_rsp( imap_store_t *ctx, list_t *list, char *cmd )
 }
 
 static int
-is_inbox( imap_store_t *ctx, const char *arg )
+is_inbox( imap_store_t *ctx, const char *arg, int argl )
 {
 	int i;
 	char c;
 
-	if (memcmp( arg, "INBOX", 5 ))
+	if (!starts_with( arg, argl, "INBOX", 5 ))
 		return 0;
 	if (arg[5])
 		for (i = 0; (c = ctx->delimiter[i]); i++)
@@ -1080,7 +1088,7 @@ parse_list_rsp_p2( imap_store_t *ctx, list_t *list, char *cmd ATTR_UNUSED )
 {
 	string_list_t *narg;
 	char *arg;
-	int l;
+	int argl, l;
 
 	if (!is_atom( list )) {
 		error( "IMAP error: malformed LIST response\n" );
@@ -1088,18 +1096,19 @@ parse_list_rsp_p2( imap_store_t *ctx, list_t *list, char *cmd ATTR_UNUSED )
 		return LIST_BAD;
 	}
 	arg = list->val;
-	if (!is_inbox( ctx, arg )) {
-		l = strlen( ctx->gen.conf->path );
-		if (memcmp( arg, ctx->gen.conf->path, l ))
+	argl = list->len;
+	if (!is_inbox( ctx, arg, argl ) && (l = strlen( ctx->prefix ))) {
+		if (!starts_with( arg, argl, ctx->prefix, l ))
 			goto skip;
 		arg += l;
-		if (is_inbox( ctx, arg )) {
+		argl -= l;
+		if (is_inbox( ctx, arg, argl )) {
 			if (!arg[5])
-				warn( "IMAP warning: ignoring INBOX in %s\n", ctx->gen.conf->path );
+				warn( "IMAP warning: ignoring INBOX in %s\n", ctx->prefix );
 			goto skip;
 		}
 	}
-	if ((l = strlen( arg )) >= 5 && !memcmp( arg + l - 5, ".lock", 5 )) /* workaround broken servers */
+	if (argl >= 5 && !memcmp( arg + argl - 5, ".lock", 5 )) /* workaround broken servers */
 		goto skip;
 	if (map_name( arg, (char **)&narg, offsetof(string_list_t, string), ctx->delimiter, "/") < 0) {
 		warn( "IMAP warning: ignoring mailbox %s (reserved character '/' in name)\n", arg );
@@ -1133,10 +1142,10 @@ prepare_name( char **buf, const imap_store_t *ctx, const char *prefix, const cha
 static int
 prepare_box( char **buf, const imap_store_t *ctx )
 {
-	const char *name = ctx->gen.name;
+	const char *name = ctx->name;
 
 	return prepare_name( buf, ctx,
-	    (!memcmp( name, "INBOX", 5 ) && (!name[5] || name[5] == '/')) ? "" : ctx->prefix, name );
+	    (starts_with( name, -1, "INBOX", 5 ) && (!name[5] || name[5] == '/')) ? "" : ctx->prefix, name );
 }
 
 static int
@@ -1275,7 +1284,7 @@ imap_socket_read( void *aux )
 				if (!strcmp( "NO", arg )) {
 					if (cmdp->param.create &&
 					    (cmdp->param.trycreate ||
-					     (cmd && !memcmp( cmd, "[TRYCREATE]", 11 ))))
+					     (cmd && starts_with( cmd, -1, "[TRYCREATE]", 11 ))))
 					{ /* SELECT, APPEND or UID COPY */
 						struct imap_cmd_trycreate *cmd2 =
 							(struct imap_cmd_trycreate *)new_imap_cmd( sizeof(*cmd2) );
@@ -1291,7 +1300,7 @@ imap_socket_read( void *aux )
 				} else /*if (!strcmp( "BAD", arg ))*/
 					resp = RESP_CANCEL;
 				error( "IMAP command '%s' returned an error: %s %s\n",
-				       memcmp( cmdp->cmd, "LOGIN", 5 ) ? cmdp->cmd : "LOGIN <user> <pass>",
+				       !starts_with( cmdp->cmd, -1, "LOGIN", 5 ) ? cmdp->cmd : "LOGIN <user> <pass>",
 				       arg, cmd ? cmd : "" );
 			}
 			if ((resp2 = parse_response_code( ctx, cmdp, cmd )) > resp)
@@ -1570,13 +1579,14 @@ imap_open_store_p2( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int res
 static void
 imap_open_store_authenticate( imap_store_t *ctx )
 {
+#ifdef HAVE_LIBSSL
+	imap_store_conf_t *cfg = (imap_store_conf_t *)ctx->gen.conf;
+	imap_server_conf_t *srvc = cfg->server;
+#endif
+
 	if (ctx->greeting != GreetingPreauth) {
 #ifdef HAVE_LIBSSL
-		imap_store_conf_t *cfg = (imap_store_conf_t *)ctx->gen.conf;
-		imap_server_conf_t *srvc = cfg->server;
-
-		if (!srvc->sconf.use_imaps &&
-		    (srvc->sconf.use_sslv2 || srvc->sconf.use_sslv3 || srvc->sconf.use_tlsv1)) {
+		if (!srvc->sconf.use_imaps && srvc->use_ssl) {
 			/* always try to select SSL support if available */
 			if (CAP(STARTTLS)) {
 				imap_exec( ctx, 0, imap_open_store_authenticate_p2, "STARTTLS" );
@@ -1594,6 +1604,13 @@ imap_open_store_authenticate( imap_store_t *ctx )
 #endif
 		imap_open_store_authenticate2( ctx );
 	} else {
+#ifdef HAVE_LIBSSL
+		if (!srvc->sconf.use_imaps && srvc->require_ssl) {
+			error( "IMAP error: SSL support not available\n" );
+			imap_open_store_bail( ctx );
+			return;
+		}
+#endif
 		imap_open_store_namespace( ctx );
 	}
 }
@@ -1733,7 +1750,7 @@ imap_open_store_namespace( imap_store_t *ctx )
 
 	ctx->prefix = cfg->gen.path;
 	ctx->delimiter = cfg->delimiter ? nfstrdup( cfg->delimiter ) : 0;
-	if (((!*ctx->prefix && cfg->use_namespace) || !cfg->delimiter) && CAP(NAMESPACE)) {
+	if (((!ctx->prefix && cfg->use_namespace) || !cfg->delimiter) && CAP(NAMESPACE)) {
 		/* get NAMESPACE info */
 		if (!ctx->got_namespace)
 			imap_exec( ctx, 0, imap_open_store_namespace_p2, "NAMESPACE" );
@@ -1767,18 +1784,22 @@ imap_open_store_namespace2( imap_store_t *ctx )
 	    is_atom( (nsp_1st_ns = nsp_1st->child) ) &&
 	    is_atom( (nsp_1st_dl = nsp_1st_ns->next) ))
 	{
-		if (!*ctx->prefix && cfg->use_namespace)
+		if (!ctx->prefix && cfg->use_namespace)
 			ctx->prefix = nsp_1st_ns->val;
 		if (!ctx->delimiter)
 			ctx->delimiter = nfstrdup( nsp_1st_dl->val );
+		imap_open_store_finalize( ctx );
+	} else {
+		imap_open_store_bail( ctx );
 	}
-	imap_open_store_finalize( ctx );
 }
 
 static void
 imap_open_store_finalize( imap_store_t *ctx )
 {
 	set_bad_callback( &ctx->gen, 0, 0 );
+	if (!ctx->prefix)
+		ctx->prefix = "";
 	ctx->trashnc = TrashUnknown;
 	ctx->callbacks.imap_open( &ctx->gen, ctx->callback_aux );
 }
@@ -1813,7 +1834,7 @@ imap_prepare_opts( store_t *gctx, int opts )
 /******************* imap_select *******************/
 
 static void
-imap_select( store_t *gctx, int create,
+imap_select( store_t *gctx, const char *name, int create,
              void (*cb)( int sts, void *aux ), void *aux )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
@@ -1824,6 +1845,7 @@ imap_select( store_t *gctx, int create,
 	gctx->msgs = 0;
 	ctx->msgapp = &gctx->msgs;
 
+	ctx->name = name;
 	if (prepare_box( &buf, ctx ) < 0) {
 		cb( DRV_BOX_BAD, aux );
 		return;
@@ -2141,28 +2163,30 @@ imap_store_msg_p2( imap_store_t *ctx ATTR_UNUSED, struct imap_cmd *cmd, int resp
 static void imap_find_new_msgs_p2( imap_store_t *, struct imap_cmd *, int );
 
 static void
-imap_find_new_msgs( store_t *gctx,
+imap_find_new_msgs( store_t *gctx, int newuid,
                     void (*cb)( int sts, void *aux ), void *aux )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
-	struct imap_cmd_simple *cmd;
+	struct imap_cmd_find_new *cmd;
 
-	INIT_IMAP_CMD(imap_cmd_simple, cmd, cb, aux)
-	imap_exec( (imap_store_t *)ctx, &cmd->gen, imap_find_new_msgs_p2, "CHECK" );
+	INIT_IMAP_CMD_X(imap_cmd_find_new, cmd, cb, aux)
+	cmd->uid = newuid;
+	imap_exec( (imap_store_t *)ctx, &cmd->gen.gen, imap_find_new_msgs_p2, "CHECK" );
 }
 
 static void
 imap_find_new_msgs_p2( imap_store_t *ctx, struct imap_cmd *gcmd, int response )
 {
-	struct imap_cmd_simple *cmdp = (struct imap_cmd_simple *)gcmd, *cmd;
+	struct imap_cmd_find_new *cmdp = (struct imap_cmd_find_new *)gcmd;
+	struct imap_cmd_simple *cmd;
 
 	if (response != RESP_OK) {
 		imap_done_simple_box( ctx, gcmd, response );
 		return;
 	}
-	INIT_IMAP_CMD(imap_cmd_simple, cmd, cmdp->callback, cmdp->callback_aux)
+	INIT_IMAP_CMD(imap_cmd_simple, cmd, cmdp->gen.callback, cmdp->gen.callback_aux)
 	imap_exec( (imap_store_t *)ctx, &cmd->gen, imap_done_simple_box,
-	           "UID FETCH %d:1000000000 (UID BODY.PEEK[HEADER.FIELDS (X-TUID)])", ctx->gen.uidnext );
+	           "UID FETCH %d:1000000000 (UID BODY.PEEK[HEADER.FIELDS (X-TUID)])", cmdp->uid );
 }
 
 /******************* imap_list *******************/
@@ -2219,6 +2243,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 {
 	imap_store_conf_t *store;
 	imap_server_conf_t *server, *srv, sserver;
+	const char *type, *name;
 	int acc_opt = 0;
 
 	if (!strcasecmp( "IMAPAccount", cfg->cmd )) {
@@ -2252,7 +2277,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 		if (!strcasecmp( "Host", cfg->cmd )) {
 			/* The imap[s]: syntax is just a backwards compat hack. */
 #ifdef HAVE_LIBSSL
-			if (!memcmp( "imaps:", cfg->val, 6 )) {
+			if (starts_with( cfg->val, -1, "imaps:", 6 )) {
 				cfg->val += 6;
 				server->sconf.use_imaps = 1;
 				server->sconf.use_sslv2 = 1;
@@ -2260,10 +2285,10 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 			} else
 #endif
 			{
-				if (!memcmp( "imap:", cfg->val, 5 ))
+				if (starts_with( cfg->val, -1, "imap:", 5 ))
 					cfg->val += 5;
 			}
-			if (!memcmp( "//", cfg->val, 2 ))
+			if (starts_with( cfg->val, -1, "//", 2 ))
 				cfg->val += 2;
 			server->sconf.host = nfstrdup( cfg->val );
 		}
@@ -2334,23 +2359,31 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 		}
 		acc_opt = 1;
 	}
+	if (store)
+		type = "IMAP store", name = store->gen.name;
+	else
+		type = "IMAP account", name = server->name;
 	if (!store || !store->server) {
 		if (!server->sconf.tunnel && !server->sconf.host) {
-			if (store)
-				error( "IMAP store '%s' has incomplete/missing connection details\n", store->gen.name );
-			else
-				error( "IMAP account '%s' has incomplete/missing connection details\n", server->name );
+			error( "%s '%s' has neither Tunnel nor Host\n", type, name );
 			cfg->err = 1;
 			return 1;
 		}
 		if (server->pass && server->pass_cmd) {
-			if (store)
-				error( "IMAP store '%s' has both Pass and PassCmd\n", store->gen.name );
-			else
-				error( "IMAP account '%s' has both Pass and PassCmd\n", server->name );
+			error( "%s '%s' has both Pass and PassCmd\n", type, name );
 			cfg->err = 1;
 			return 1;
 		}
+#ifdef HAVE_LIBSSL
+		server->use_ssl =
+		        server->sconf.use_sslv2 | server->sconf.use_sslv3 |
+		        server->sconf.use_tlsv1 | server->sconf.use_tlsv11 | server->sconf.use_tlsv12;
+		if (server->require_ssl && !server->use_ssl) {
+			error( "%s '%s' requires SSL but no SSL versions enabled\n", type, name );
+			cfg->err = 1;
+			return 1;
+		}
+#endif
 	}
 	if (store) {
 		if (!store->server) {
@@ -2358,7 +2391,7 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 			memcpy( store->server, &sserver, sizeof(sserver) );
 			store->server->name = store->gen.name;
 		} else if (acc_opt) {
-			error( "IMAP store '%s' has both Account and account-specific options\n", store->gen.name );
+			error( "%s '%s' has both Account and account-specific options\n", type, name );
 			cfg->err = 1;
 		}
 	}
