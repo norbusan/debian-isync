@@ -1,8 +1,9 @@
-isync (1.1.2-1) UNRELEASED; urgency=medium
+isync (1.1.2-1) unstable; urgency=medium
 
   * New upstream release
+  * Bump Standards-Version to 3.9.6 (no changes needed)
 
- -- Alessandro Ghedini <ghedo@debian.org>  Sat, 31 Jan 2015 21:35:39 +0100
+ -- Alessandro Ghedini <ghedo@debian.org>  Sun, 01 Feb 2015 20:42:25 +0100
 
 isync (1.1.1-1) unstable; urgency=medium
 
