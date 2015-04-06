@@ -1,9 +1,10 @@
-isync (1.2.0-1) UNRELEASED; urgency=medium
+isync (1.2.0-1) experimental; urgency=medium
 
   * New upstream release
     - Only show sync progress by default (Closes: #765052)
+  * Enable libsasl support
 
- -- Alessandro Ghedini <ghedo@debian.org>  Mon, 06 Apr 2015 12:35:09 +0200
+ -- Alessandro Ghedini <ghedo@debian.org>  Mon, 06 Apr 2015 13:42:24 +0200
 
 isync (1.1.2-1) unstable; urgency=medium
 
