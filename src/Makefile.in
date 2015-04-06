@@ -79,6 +79,7 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 bin_PROGRAMS = mbsync$(EXEEXT) mdconvert$(EXEEXT)
+EXTRA_PROGRAMS = tst_timers$(EXEEXT)
 subdir = src
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/depcomp $(noinst_HEADERS)
@@ -99,10 +100,14 @@ am_mbsync_OBJECTS = main.$(OBJEXT) sync.$(OBJEXT) config.$(OBJEXT) \
 	drv_imap.$(OBJEXT) drv_maildir.$(OBJEXT)
 mbsync_OBJECTS = $(am_mbsync_OBJECTS)
 am__DEPENDENCIES_1 =
-mbsync_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
+mbsync_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 am_mdconvert_OBJECTS = mdconvert.$(OBJEXT)
 mdconvert_OBJECTS = $(am_mdconvert_OBJECTS)
 mdconvert_DEPENDENCIES =
+am_tst_timers_OBJECTS = tst_timers.$(OBJEXT) util.$(OBJEXT)
+tst_timers_OBJECTS = $(am_tst_timers_OBJECTS)
+tst_timers_LDADD = $(LDADD)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -131,8 +136,9 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(mbsync_SOURCES) $(mdconvert_SOURCES)
-DIST_SOURCES = $(mbsync_SOURCES) $(mdconvert_SOURCES)
+SOURCES = $(mbsync_SOURCES) $(mdconvert_SOURCES) $(tst_timers_SOURCES)
+DIST_SOURCES = $(mbsync_SOURCES) $(mdconvert_SOURCES) \
+	$(tst_timers_SOURCES)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
 	ctags-recursive dvi-recursive html-recursive info-recursive \
 	install-data-recursive install-dvi-recursive \
@@ -275,12 +281,14 @@ PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 PKGCONFIG = @PKGCONFIG@
+SASL_LIBS = @SASL_LIBS@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 SOCK_LIBS = @SOCK_LIBS@
 SSL_LIBS = @SSL_LIBS@
 STRIP = @STRIP@
 VERSION = @VERSION@
+Z_LIBS = @Z_LIBS@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -326,10 +334,11 @@ top_srcdir = @top_srcdir@
 @with_compat_TRUE@compat_dir = compat
 SUBDIRS = $(compat_dir)
 mbsync_SOURCES = main.c sync.c config.c util.c socket.c driver.c drv_imap.c drv_maildir.c
-mbsync_LDADD = -ldb $(SSL_LIBS) $(SOCK_LIBS)
+mbsync_LDADD = -ldb $(SSL_LIBS) $(SOCK_LIBS) $(SASL_LIBS) $(Z_LIBS)
 noinst_HEADERS = common.h config.h driver.h sync.h socket.h
 mdconvert_SOURCES = mdconvert.c
 mdconvert_LDADD = -ldb
+tst_timers_SOURCES = tst_timers.c util.c
 man_MANS = mbsync.1 mdconvert.1
 exampledir = $(docdir)/examples
 example_DATA = mbsyncrc.sample
@@ -419,6 +428,10 @@ mdconvert$(EXEEXT): $(mdconvert_OBJECTS) $(mdconvert_DEPENDENCIES) $(EXTRA_mdcon
 	@rm -f mdconvert$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(mdconvert_OBJECTS) $(mdconvert_LDADD) $(LIBS)
 
+tst_timers$(EXEEXT): $(tst_timers_OBJECTS) $(tst_timers_DEPENDENCIES) $(EXTRA_tst_timers_DEPENDENCIES) 
+	@rm -f tst_timers$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(tst_timers_OBJECTS) $(tst_timers_LDADD) $(LIBS)
+
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 
@@ -433,6 +446,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mdconvert.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/socket.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sync.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/tst_timers.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/util.Po@am__quote@
 
 .c.o:

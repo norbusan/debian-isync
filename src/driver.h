@@ -27,6 +27,10 @@
 
 typedef struct driver driver_t;
 
+#define FAIL_TEMP   0  /* Retry immediately (also: no error) */
+#define FAIL_WAIT   1  /* Retry after some time (if at all) */
+#define FAIL_FINAL  2  /* Don't retry until store reconfiguration */
+
 typedef struct store_conf {
 	struct store_conf *next;
 	char *name;
@@ -35,8 +39,9 @@ typedef struct store_conf {
 	const char *flat_delim;
 	const char *map_inbox;
 	const char *trash;
-	unsigned max_size; /* off_t is overkill */
+	uint max_size; /* off_t is overkill */
 	char trash_remote_new, trash_only_new;
+	char failed;
 } store_conf_t;
 
 /* For message->flags */
@@ -62,7 +67,7 @@ typedef struct message {
 	/* string_list_t *keywords; */
 	size_t size; /* zero implies "not fetched" */
 	int uid;
-	unsigned char flags, status;
+	uchar flags, status;
 	char tuid[TUIDL];
 } message_t;
 
@@ -86,12 +91,11 @@ typedef struct store {
 	void *bad_callback_aux;
 
 	/* currently open mailbox */
-	const char *orig_name; /* foreign! maybe preset? */
 	char *path; /* own */
 	message_t *msgs; /* own */
 	int uidvalidity;
 	int uidnext; /* from SELECT responses */
-	unsigned opts; /* maybe preset? */
+	uint opts; /* maybe preset? */
 	/* note that the following do _not_ reflect stats from msgs, but mailbox totals */
 	int count; /* # of messages */
 	int recent; /* # of recent messages - don't trust this beyond the initial read */
@@ -110,7 +114,7 @@ typedef struct {
 	char *data;
 	int len;
 	time_t date;
-	unsigned char flags;
+	uchar flags;
 } msg_data_t;
 
 #define DRV_OK          0
@@ -159,26 +163,47 @@ struct driver {
 	void (*cancel_store)( store_t *ctx );
 
 	/* List the mailboxes in this store. Flags are ORed LIST_* values. */
-	void (*list)( store_t *ctx, int flags,
-	              void (*cb)( int sts, void *aux ), void *aux );
+	void (*list_store)( store_t *ctx, int flags,
+	                    void (*cb)( int sts, void *aux ), void *aux );
 
-	/* Invoked before select(), this informs the driver which operations (OP_*)
+	/* Invoked before open_box(), this informs the driver which box is to be opened.
+	 * As a side effect, this should resolve ctx->path if applicable. */
+	int (*select_box)( store_t *ctx, const char *name );
+
+	/* Create the selected mailbox. */
+	void (*create_box)( store_t *ctx,
+	                    void (*cb)( int sts, void *aux ), void *aux );
+
+	/* Open the selected mailbox.
+	 * Note that this should not directly complain about failure to open. */
+	void (*open_box)( store_t *ctx,
+	                  void (*cb)( int sts, void *aux ), void *aux );
+
+	/* Confirm that the open mailbox is empty. */
+	int (*confirm_box_empty)( store_t *ctx );
+
+	/* Delete the open mailbox. The mailbox is expected to be empty.
+	 * Subfolders of the mailbox are *not* deleted.
+	 * Some artifacts of the mailbox may remain, but they won't be
+	 * recognized as a mailbox any more. */
+	void (*delete_box)( store_t *ctx,
+	                    void (*cb)( int sts, void *aux ), void *aux );
+
+	/* Remove the last artifacts of the open mailbox, as far as possible. */
+	int (*finish_delete_box)( store_t *ctx );
+
+	/* Invoked before load_box(), this informs the driver which operations (OP_*)
 	 * will be performed on the mailbox. The driver may extend the set by implicitly
 	 * needed or available operations. */
-	void (*prepare_opts)( store_t *ctx, int opts );
-
-	/* Open the mailbox name. Optionally create missing boxes.
-	 * As a side effect, this should resolve ctx->path if applicable. */
-	void (*select)( store_t *ctx, const char *name, int create,
-	               void (*cb)( int sts, void *aux ), void *aux );
+	void (*prepare_load_box)( store_t *ctx, int opts );
 
 	/* Load the message attributes needed to perform the requested operations.
 	 * Consider only messages with UIDs between minuid and maxuid (inclusive)
 	 * and those named in the excs array (smaller than minuid).
 	 * The driver takes ownership of the excs array. Messages below newuid do not need
 	 * to have the TUID populated even if OPEN_FIND is set. */
-	void (*load)( store_t *ctx, int minuid, int maxuid, int newuid, int *excs, int nexcs,
-	              void (*cb)( int sts, void *aux ), void *aux );
+	void (*load_box)( store_t *ctx, int minuid, int maxuid, int newuid, int *excs, int nexcs,
+	                  void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Fetch the contents and flags of the given message from the current mailbox. */
 	void (*fetch_msg)( store_t *ctx, message_t *msg, msg_data_t *data,
@@ -199,8 +224,8 @@ struct driver {
 	 * a pre-fetched one (in which case the in-memory representation is updated),
 	 * or it may be identifed by UID only. The operation may be delayed until commit()
 	 * is called. */
-	void (*set_flags)( store_t *ctx, message_t *msg, int uid, int add, int del, /* msg can be null, therefore uid as a fallback */
-	                   void (*cb)( int sts, void *aux ), void *aux );
+	void (*set_msg_flags)( store_t *ctx, message_t *msg, int uid, int add, int del, /* msg can be null, therefore uid as a fallback */
+	                       void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Move the given message from the current mailbox to the trash folder.
 	 * This may expunge the original message immediately, but it needn't to. */
@@ -209,18 +234,21 @@ struct driver {
 
 	/* Expunge deleted messages from the current mailbox and close it.
 	 * There is no need to explicitly close a mailbox if no expunge is needed. */
-	void (*close)( store_t *ctx, /* IMAP-style: expunge inclusive */
-	               void (*cb)( int sts, void *aux ), void *aux );
+	void (*close_box)( store_t *ctx, /* IMAP-style: expunge inclusive */
+	                   void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Cancel queued commands which are not in flight yet; they will have their
 	 * callbacks invoked with DRV_CANCELED. Afterwards, wait for the completion of
 	 * the in-flight commands. If the store is canceled before this command completes,
 	 * the callback will *not* be invoked. */
-	void (*cancel)( store_t *ctx,
-	                void (*cb)( void *aux ), void *aux );
+	void (*cancel_cmds)( store_t *ctx,
+	                     void (*cb)( void *aux ), void *aux );
 
-	/* Commit any pending set_flags() commands. */
-	void (*commit)( store_t *ctx );
+	/* Commit any pending set_msg_flags() commands. */
+	void (*commit_cmds)( store_t *ctx );
+
+	/* Get approximate amount of memory occupied by the driver. */
+	int (*memory_usage)( store_t *ctx );
 };
 
 void free_generic_messages( message_t * );

@@ -266,12 +266,14 @@ PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 PKGCONFIG = @PKGCONFIG@
+SASL_LIBS = @SASL_LIBS@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 SOCK_LIBS = @SOCK_LIBS@
 SSL_LIBS = @SSL_LIBS@
 STRIP = @STRIP@
 VERSION = @VERSION@
+Z_LIBS = @Z_LIBS@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -903,7 +905,7 @@ $(srcdir)/ChangeLog: log
 log:
 	@test -z "$(srcdir)" || cd $(srcdir) && \
 	 ( ! test -d .git || \
-	   git log --date=iso --log-size --name-only | \
+	   git log --date=iso --log-size --name-only --no-merges | \
 	     perl -e '$(LOG_PL)' > ChangeLog )
 
 deb: deb-clean

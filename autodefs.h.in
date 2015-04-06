@@ -15,8 +15,14 @@
 /* if your libc has IPv6 support */
 #undef HAVE_IPV6
 
+/* if you have the SASL libraries */
+#undef HAVE_LIBSASL
+
 /* if you have the OpenSSL libraries */
 #undef HAVE_LIBSSL
+
+/* if you have the zlib library */
+#undef HAVE_LIBZ
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H

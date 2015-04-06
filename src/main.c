@@ -33,10 +33,23 @@
 
 int DFlags;
 int UseFSync = 1;
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(__CYGWIN__)
+char FieldDelimiter = ';';
+#else
+char FieldDelimiter = ':';
+#endif
 
 int Pid;		/* for maildir and imap */
 char Hostname[256];	/* for maildir */
 const char *Home;	/* for config */
+
+int BufferLimit = 10 * 1024 * 1024;
+
+int chans_total, chans_done;
+int boxes_total, boxes_done;
+int new_total[2], new_done[2];
+int flags_total[2], flags_done[2];
+int trash_total[2], trash_done[2];
 
 static void
 version( void )
@@ -66,9 +79,9 @@ PACKAGE " " VERSION " - mailbox synchronizer\n"
 "  -C, --create		create mailboxes if nonexistent\n"
 "  -X, --expunge		expunge	deleted messages\n"
 "  -c, --config CONFIG	read an alternate config file (default: ~/." EXE "rc)\n"
-"  -D, --debug		print debugging messages\n"
-"  -V, --verbose		verbose mode (display network traffic)\n"
-"  -q, --quiet		don't display progress info\n"
+"  -D, --debug		debugging modes (see manual)\n"
+"  -V, --verbose		display what is happening\n"
+"  -q, --quiet		don't display progress counters\n"
 "  -v, --version		display version\n"
 "  -h, --help		display this help message\n"
 "\nIf neither --pull nor --push are specified, both are active.\n"
@@ -84,6 +97,16 @@ PACKAGE " " VERSION " - mailbox synchronizer\n"
 #endif
 	, code ? stderr : stdout );
 	exit( code );
+}
+
+static void ATTR_PRINTFLIKE(1, 2)
+debug( const char *msg, ... )
+{
+	va_list va;
+
+	va_start( va, msg );
+	vdebug( DEBUG_MAIN, msg, va );
+	va_end( va );
 }
 
 #ifdef __linux__
@@ -116,6 +139,32 @@ crashHandler( int n )
 }
 #endif
 
+void
+stats( void )
+{
+	char buf[3][64];
+	char *cs;
+	int t, l, ll, cls;
+	static int cols = -1;
+
+	if (!(DFlags & PROGRESS))
+		return;
+
+	if (cols < 0 && (!(cs = getenv( "COLUMNS" )) || !(cols = atoi( cs ))))
+		cols = 80;
+	ll = sprintf( buf[2], "C: %d/%d  B: %d/%d", chans_done, chans_total, boxes_done, boxes_total );
+	cls = (cols - ll - 10) / 2;
+	for (t = 0; t < 2; t++) {
+		l = sprintf( buf[t], "+%d/%d *%d/%d #%d/%d",
+		             new_done[t], new_total[t],
+		             flags_done[t], flags_total[t],
+		             trash_done[t], trash_total[t] );
+		if (l > cls)
+			buf[t][cls - 1] = '~';
+	}
+	progress( "\r%s  M: %.*s  S: %.*s", buf[2], cls, buf[0], cls, buf[1] );
+}
+
 static int
 matches( const char *t, const char *p )
 {
@@ -146,12 +195,33 @@ matches( const char *t, const char *p )
 	}
 }
 
-static string_list_t *
+
+static int
+is_inbox( const char *name )
+{
+	return starts_with( name, -1, "INBOX", 5 ) && (!name[5] || name[5] == '/');
+}
+
+static int
+cmp_box_names( const void *a, const void *b )
+{
+	const char *as = *(const char **)a;
+	const char *bs = *(const char **)b;
+	int ai = is_inbox( as );
+	int bi = is_inbox( bs );
+	int di = bi - ai;
+	if (di)
+		return di;
+	return strcmp( as, bs );
+}
+
+static char **
 filter_boxes( string_list_t *boxes, const char *prefix, string_list_t *patterns )
 {
-	string_list_t *nboxes = 0, *cpat;
+	string_list_t *cpat;
+	char **boxarr = 0;
 	const char *ps;
-	int not, fnot, pfxl;
+	int not, fnot, pfxl, num = 0, rnum = 0;
 
 	pfxl = prefix ? strlen( prefix ) : 0;
 	for (; boxes; boxes = boxes->next) {
@@ -170,10 +240,15 @@ filter_boxes( string_list_t *boxes, const char *prefix, string_list_t *patterns 
 				break;
 			}
 		}
-		if (!fnot)
-			add_string_list( &nboxes, boxes->string + pfxl );
+		if (!fnot) {
+			if (num + 1 >= rnum)
+				boxarr = nfrealloc( boxarr, (rnum = (rnum + 10) * 2) * sizeof(*boxarr) );
+			boxarr[num++] = nfstrdup( boxes->string + pfxl );
+			boxarr[num] = 0;
+		}
 	}
-	return nboxes;
+	qsort( boxarr, num, sizeof(*boxarr), cmp_box_names );
+	return boxarr;
 }
 
 static void
@@ -195,16 +270,100 @@ merge_actions( channel_conf_t *chan, int ops[], int have, int mask, int def )
 	}
 }
 
+typedef struct box_ent {
+	struct box_ent *next;
+	char *name;
+	int present[2];
+} box_ent_t;
+
+typedef struct chan_ent {
+	struct chan_ent *next;
+	channel_conf_t *conf;
+	box_ent_t *boxes;
+	char boxlist;
+} chan_ent_t;
+
+static chan_ent_t *
+add_channel( chan_ent_t ***chanapp, channel_conf_t *chan, int ops[] )
+{
+	chan_ent_t *ce = nfcalloc( sizeof(*ce) );
+	ce->conf = chan;
+
+	merge_actions( chan, ops, XOP_HAVE_TYPE, OP_MASK_TYPE, OP_MASK_TYPE );
+	merge_actions( chan, ops, XOP_HAVE_CREATE, OP_CREATE, 0 );
+	merge_actions( chan, ops, XOP_HAVE_REMOVE, OP_REMOVE, 0 );
+	merge_actions( chan, ops, XOP_HAVE_EXPUNGE, OP_EXPUNGE, 0 );
+
+	**chanapp = ce;
+	*chanapp = &ce->next;
+	chans_total++;
+	return ce;
+}
+
+static chan_ent_t *
+add_named_channel( chan_ent_t ***chanapp, char *channame, int ops[] )
+{
+	channel_conf_t *chan;
+	chan_ent_t *ce;
+	box_ent_t *boxes = 0, **mboxapp = &boxes, *mbox;
+	char *boxp, *nboxp;
+	int boxl, boxlist = 0;
+
+	if ((boxp = strchr( channame, ':' )))
+		*boxp++ = 0;
+	for (chan = channels; chan; chan = chan->next)
+		if (!strcmp( chan->name, channame ))
+			goto gotchan;
+	error( "No channel or group named '%s' defined.\n", channame );
+	return 0;
+  gotchan:
+	if (boxp) {
+		if (!chan->patterns) {
+			error( "Cannot override mailbox in channel '%s' - no Patterns.\n", channame );
+			return 0;
+		}
+		boxlist = 1;
+		do {
+			nboxp = strpbrk( boxp, ",\n" );
+			if (nboxp) {
+				boxl = nboxp - boxp;
+				*nboxp++ = 0;
+			} else {
+				boxl = strlen( boxp );
+			}
+			mbox = nfmalloc( sizeof(*mbox) );
+			if (boxl)
+				mbox->name = nfstrndup( boxp, boxl );
+			else
+				mbox->name = nfstrndup( "INBOX", 5 );
+			mbox->present[M] = mbox->present[S] = BOX_POSSIBLE;
+			mbox->next = 0;
+			*mboxapp = mbox;
+			mboxapp = &mbox->next;
+			boxes_total++;
+			boxp = nboxp;
+		} while (boxp);
+	} else {
+		if (!chan->patterns)
+			boxes_total++;
+	}
+
+	ce = add_channel( chanapp, chan, ops );
+	ce->boxes = boxes;
+	ce->boxlist = boxlist;
+	return ce;
+}
+
 typedef struct {
 	int t[2];
 	channel_conf_t *chan;
 	driver_t *drv[2];
 	store_t *ctx[2];
-	string_list_t *boxes[2], *cboxes, *chanptr;
+	chan_ent_t *chanptr;
+	box_ent_t *boxptr;
 	char *names[2];
-	char **argv;
-	int oind, ret, multiple, all, list, ops[2], state[2];
-	char done, skip, cben, boxlist;
+	int ret, all, list, state[2];
+	char done, skip, cben;
 } main_vars_t;
 
 #define AUX &mvars->t[t]
@@ -222,9 +381,12 @@ int
 main( int argc, char **argv )
 {
 	main_vars_t mvars[1];
+	chan_ent_t *chans = 0, **chanapp = &chans;
 	group_conf_t *group;
+	channel_conf_t *chan;
+	string_list_t *channame;
 	char *config = 0, *opt, *ochar;
-	int cops = 0, op, pseudo = 0;
+	int oind, cops = 0, op, ops[2] = { 0, 0 }, pseudo = 0;
 
 	tzset();
 	gethostname( Hostname, sizeof(Hostname) );
@@ -240,22 +402,22 @@ main( int argc, char **argv )
 	memset( mvars, 0, sizeof(*mvars) );
 	mvars->t[1] = 1;
 
-	for (mvars->oind = 1, ochar = 0; ; ) {
+	for (oind = 1, ochar = 0; ; ) {
 		if (!ochar || !*ochar) {
-			if (mvars->oind >= argc)
+			if (oind >= argc)
 				break;
-			if (argv[mvars->oind][0] != '-')
+			if (argv[oind][0] != '-')
 				break;
-			if (argv[mvars->oind][1] == '-') {
-				opt = argv[mvars->oind++] + 2;
+			if (argv[oind][1] == '-') {
+				opt = argv[oind++] + 2;
 				if (!*opt)
 					break;
 				if (!strcmp( opt, "config" )) {
-					if (mvars->oind >= argc) {
+					if (oind >= argc) {
 						error( "--config requires an argument.\n" );
 						return 1;
 					}
-					config = argv[mvars->oind++];
+					config = argv[oind++];
 				} else if (starts_with( opt, -1, "config=", 7 ))
 					config = opt + 7;
 				else if (!strcmp( opt, "all" ))
@@ -272,16 +434,30 @@ main( int argc, char **argv )
 					else
 						DFlags |= QUIET;
 				} else if (!strcmp( opt, "verbose" )) {
-					if (DFlags & VERBOSE)
-						DFlags |= XVERBOSE;
+					DFlags |= VERBOSE;
+				} else if (starts_with( opt, -1, "debug", 5 )) {
+					opt += 5;
+					if (!*opt)
+						op = VERBOSE | DEBUG_ALL;
+					else if (!strcmp( opt, "-crash" ))
+						op = DEBUG_CRASH;
+					else if (!strcmp( opt, "-maildir" ))
+						op = VERBOSE | DEBUG_MAILDIR;
+					else if (!strcmp( opt, "-main" ))
+						op = VERBOSE | DEBUG_MAIN;
+					else if (!strcmp( opt, "-net" ))
+						op = VERBOSE | DEBUG_NET;
+					else if (!strcmp( opt, "-net-all" ))
+						op = VERBOSE | DEBUG_NET_ALL;
+					else if (!strcmp( opt, "-sync" ))
+						op = VERBOSE | DEBUG_SYNC;
 					else
-						DFlags |= VERBOSE | QUIET;
-				} else if (!strcmp( opt, "debug" ))
-					DFlags |= DEBUG | QUIET;
-				else if (!strcmp( opt, "pull" ))
-					cops |= XOP_PULL, mvars->ops[M] |= XOP_HAVE_TYPE;
+						goto badopt;
+					DFlags |= op;
+				} else if (!strcmp( opt, "pull" ))
+					cops |= XOP_PULL, ops[M] |= XOP_HAVE_TYPE;
 				else if (!strcmp( opt, "push" ))
-					cops |= XOP_PUSH, mvars->ops[M] |= XOP_HAVE_TYPE;
+					cops |= XOP_PUSH, ops[M] |= XOP_HAVE_TYPE;
 				else if (starts_with( opt, -1, "create", 6 )) {
 					opt += 6;
 					op = OP_CREATE|XOP_HAVE_CREATE;
@@ -289,24 +465,30 @@ main( int argc, char **argv )
 					if (!*opt)
 						cops |= op;
 					else if (!strcmp( opt, "-master" ))
-						mvars->ops[M] |= op;
+						ops[M] |= op;
 					else if (!strcmp( opt, "-slave" ))
-						mvars->ops[S] |= op;
+						ops[S] |= op;
 					else
 						goto badopt;
-					mvars->ops[M] |= op & (XOP_HAVE_CREATE|XOP_HAVE_EXPUNGE);
+					ops[M] |= op & (XOP_HAVE_CREATE|XOP_HAVE_REMOVE|XOP_HAVE_EXPUNGE);
+				} else if (starts_with( opt, -1, "remove", 6 )) {
+					opt += 6;
+					op = OP_REMOVE|XOP_HAVE_REMOVE;
+					goto lcop;
 				} else if (starts_with( opt, -1, "expunge", 7 )) {
 					opt += 7;
 					op = OP_EXPUNGE|XOP_HAVE_EXPUNGE;
 					goto lcop;
 				} else if (!strcmp( opt, "no-expunge" ))
-					mvars->ops[M] |= XOP_HAVE_EXPUNGE;
+					ops[M] |= XOP_HAVE_EXPUNGE;
 				else if (!strcmp( opt, "no-create" ))
-					mvars->ops[M] |= XOP_HAVE_CREATE;
+					ops[M] |= XOP_HAVE_CREATE;
+				else if (!strcmp( opt, "no-remove" ))
+					ops[M] |= XOP_HAVE_REMOVE;
 				else if (!strcmp( opt, "full" ))
-					mvars->ops[M] |= XOP_HAVE_TYPE|XOP_PULL|XOP_PUSH;
+					ops[M] |= XOP_HAVE_TYPE|XOP_PULL|XOP_PUSH;
 				else if (!strcmp( opt, "noop" ))
-					mvars->ops[M] |= XOP_HAVE_TYPE;
+					ops[M] |= XOP_HAVE_TYPE;
 				else if (starts_with( opt, -1, "pull", 4 )) {
 					op = XOP_PULL;
 				  lcac:
@@ -334,19 +516,19 @@ main( int argc, char **argv )
 						op |= OP_FLAGS;
 					else {
 					  badopt:
-						error( "Unknown option '%s'\n", argv[mvars->oind - 1] );
+						error( "Unknown option '%s'\n", argv[oind - 1] );
 						return 1;
 					}
 					switch (op & XOP_MASK_DIR) {
-					case XOP_PULL: mvars->ops[S] |= op & OP_MASK_TYPE; break;
-					case XOP_PUSH: mvars->ops[M] |= op & OP_MASK_TYPE; break;
+					case XOP_PULL: ops[S] |= op & OP_MASK_TYPE; break;
+					case XOP_PUSH: ops[M] |= op & OP_MASK_TYPE; break;
 					default: cops |= op; break;
 					}
-					mvars->ops[M] |= XOP_HAVE_TYPE;
+					ops[M] |= XOP_HAVE_TYPE;
 				}
 				continue;
 			}
-			ochar = argv[mvars->oind++] + 1;
+			ochar = argv[oind++] + 1;
 			if (!*ochar) {
 				error( "Invalid option '-'\n" );
 				return 1;
@@ -364,25 +546,28 @@ main( int argc, char **argv )
 				ochar++;
 				pseudo = 1;
 			}
-			if (mvars->oind >= argc) {
+			if (oind >= argc) {
 				error( "-c requires an argument.\n" );
 				return 1;
 			}
-			config = argv[mvars->oind++];
+			config = argv[oind++];
 			break;
 		case 'C':
 			op = OP_CREATE|XOP_HAVE_CREATE;
 		  cop:
 			if (*ochar == 'm')
-				mvars->ops[M] |= op, ochar++;
+				ops[M] |= op, ochar++;
 			else if (*ochar == 's')
-				mvars->ops[S] |= op, ochar++;
+				ops[S] |= op, ochar++;
 			else if (*ochar == '-')
 				ochar++;
 			else
 				cops |= op;
-			mvars->ops[M] |= op & (XOP_HAVE_CREATE|XOP_HAVE_EXPUNGE);
+			ops[M] |= op & (XOP_HAVE_CREATE|XOP_HAVE_REMOVE|XOP_HAVE_EXPUNGE);
 			break;
+		case 'R':
+			op = OP_REMOVE|XOP_HAVE_REMOVE;
+			goto cop;
 		case 'X':
 			op = OP_EXPUNGE|XOP_HAVE_EXPUNGE;
 			goto cop;
@@ -390,7 +575,7 @@ main( int argc, char **argv )
 			cops |= XOP_PULL|XOP_PUSH;
 			/* fallthrough */
 		case '0':
-			mvars->ops[M] |= XOP_HAVE_TYPE;
+			ops[M] |= XOP_HAVE_TYPE;
 			break;
 		case 'n':
 		case 'd':
@@ -413,13 +598,13 @@ main( int argc, char **argv )
 			}
 			if (op & OP_MASK_TYPE)
 				switch (op & XOP_MASK_DIR) {
-				case XOP_PULL: mvars->ops[S] |= op & OP_MASK_TYPE; break;
-				case XOP_PUSH: mvars->ops[M] |= op & OP_MASK_TYPE; break;
+				case XOP_PULL: ops[S] |= op & OP_MASK_TYPE; break;
+				case XOP_PUSH: ops[M] |= op & OP_MASK_TYPE; break;
 				default: cops |= op; break;
 				}
 			else
 				cops |= op;
-			mvars->ops[M] |= XOP_HAVE_TYPE;
+			ops[M] |= XOP_HAVE_TYPE;
 			break;
 		case 'L':
 			op = XOP_PULL;
@@ -434,16 +619,37 @@ main( int argc, char **argv )
 				DFlags |= QUIET;
 			break;
 		case 'V':
-			if (DFlags & VERBOSE)
-				DFlags |= XVERBOSE;
-			else
-				DFlags |= VERBOSE | QUIET;
+			DFlags |= VERBOSE;
 			break;
 		case 'D':
-			if (*ochar == 'C')
-				DFlags |= CRASHDEBUG, ochar++;
-			else
-				DFlags |= CRASHDEBUG | DEBUG | QUIET;
+			for (op = 0; *ochar; ochar++) {
+				switch (*ochar) {
+				case 'C':
+					op |= DEBUG_CRASH;
+					break;
+				case 'm':
+					op |= DEBUG_MAILDIR | VERBOSE;
+					break;
+				case 'M':
+					op |= DEBUG_MAIN | VERBOSE;
+					break;
+				case 'n':
+					op |= DEBUG_NET | VERBOSE;
+					break;
+				case 'N':
+					op |= DEBUG_NET_ALL | VERBOSE;
+					break;
+				case 's':
+					op |= DEBUG_SYNC | VERBOSE;
+					break;
+				default:
+					error( "Unknown -D flag '%c'\n", *ochar );
+					return 1;
+				}
+			}
+			if (!op)
+				op = DEBUG_ALL | VERBOSE;
+			DFlags |= op;
 			break;
 		case 'J':
 			DFlags |= KEEPJOURNAL;
@@ -461,44 +667,62 @@ main( int argc, char **argv )
 		}
 	}
 
+	if (!(DFlags & (QUIET | DEBUG_ALL)) && isatty( 1 ))
+		DFlags |= PROGRESS;
+
 #ifdef __linux__
-	if (DFlags & CRASHDEBUG) {
+	if (DFlags & DEBUG_CRASH) {
 		signal( SIGSEGV, crashHandler );
 		signal( SIGBUS, crashHandler );
 		signal( SIGILL, crashHandler );
 	}
 #endif
 
-	if (merge_ops( cops, mvars->ops ))
+	if (merge_ops( cops, ops ))
 		return 1;
 
 	if (load_config( config, pseudo ))
 		return 1;
 
-	if (!mvars->all && !argv[mvars->oind]) {
-		fputs( "No channel specified. Try '" EXE " -h'\n", stderr );
-		return 1;
-	}
 	if (!channels) {
 		fputs( "No channels defined. Try 'man " EXE "'\n", stderr );
 		return 1;
 	}
 
-	mvars->chan = channels;
-	if (mvars->all)
-		mvars->multiple = channels->next != 0;
-	else if (argv[mvars->oind + 1])
-		mvars->multiple = 1;
-	else
-		for (group = groups; group; group = group->next)
-			if (!strcmp( group->name, argv[mvars->oind] )) {
-				mvars->multiple = 1;
-				break;
+	if (mvars->all) {
+		for (chan = channels; chan; chan = chan->next) {
+			add_channel( &chanapp, chan, ops );
+			if (!chan->patterns)
+				boxes_total++;
+		}
+	} else {
+		for (; argv[oind]; oind++) {
+			for (group = groups; group; group = group->next) {
+				if (!strcmp( group->name, argv[oind] )) {
+					for (channame = group->channels; channame; channame = channame->next)
+						if (!add_named_channel( &chanapp, channame->string, ops ))
+							mvars->ret = 1;
+					goto gotgrp;
+				}
 			}
-	mvars->argv = argv;
+			if (!add_named_channel( &chanapp, argv[oind], ops ))
+				mvars->ret = 1;
+		  gotgrp: ;
+		}
+	}
+	if (!chans) {
+		fputs( "No channel specified. Try '" EXE " -h'\n", stderr );
+		return 1;
+	}
+	mvars->chanptr = chans;
+
+	if (!mvars->list)
+		stats();
 	mvars->cben = 1;
 	sync_chans( mvars, E_START );
 	main_loop();
+	if (!mvars->list)
+		flushn();
 	return mvars->ret;
 }
 
@@ -508,8 +732,7 @@ main( int argc, char **argv )
 
 static void store_opened( store_t *ctx, void *aux );
 static void store_listed( int sts, void *aux );
-static int sync_listed_boxes( main_vars_t *mvars, string_list_t *mbox );
-static void done_sync_dyn( int sts, void *aux );
+static int sync_listed_boxes( main_vars_t *mvars, box_ent_t *mbox );
 static void done_sync_2_dyn( int sts, void *aux );
 static void done_sync( int sts, void *aux );
 
@@ -518,12 +741,10 @@ static void done_sync( int sts, void *aux );
 static void
 sync_chans( main_vars_t *mvars, int ent )
 {
-	group_conf_t *group;
-	channel_conf_t *chan;
-	string_list_t *mbox, *sbox, **mboxp, **sboxp;
-	char *channame, *boxp, *nboxp;
+	box_ent_t *mbox, *nmbox, **mboxapp;
+	char **boxes[2];
 	const char *labels[2];
-	int t;
+	int t, mb, sb, cmp;
 
 	if (!mvars->cben)
 		return;
@@ -531,70 +752,25 @@ sync_chans( main_vars_t *mvars, int ent )
 	case E_OPEN: goto opened;
 	case E_SYNC: goto syncone;
 	}
-	for (;;) {
-		mvars->boxlist = 0;
-		mvars->boxes[M] = mvars->boxes[S] = mvars->cboxes = 0;
-		if (!mvars->all) {
-			if (mvars->chanptr)
-				channame = mvars->chanptr->string;
-			else {
-				for (group = groups; group; group = group->next)
-					if (!strcmp( group->name, mvars->argv[mvars->oind] )) {
-						mvars->chanptr = group->channels;
-						channame = mvars->chanptr->string;
-						goto gotgrp;
-					}
-				channame = mvars->argv[mvars->oind];
-			  gotgrp: ;
-			}
-			if ((boxp = strchr( channame, ':' )))
-				*boxp++ = 0;
-			for (chan = channels; chan; chan = chan->next)
-				if (!strcmp( chan->name, channame ))
-					goto gotchan;
-			error( "No channel or group named '%s' defined.\n", channame );
-			mvars->ret = 1;
-			goto gotnone;
-		  gotchan:
-			mvars->chan = chan;
-			if (boxp) {
-				if (!chan->patterns) {
-					error( "Cannot override mailbox in channel '%s' - no Patterns.\n", channame );
-					mvars->ret = 1;
-					goto gotnone;
-				}
-				mvars->boxlist = 1;
-				for (;;) {
-					nboxp = strpbrk( boxp, ",\n" );
-					if (nboxp) {
-						t = nboxp - boxp;
-						*nboxp++ = 0;
-					} else {
-						t = strlen( boxp );
-					}
-					if (t)
-						add_string_list_n( &mvars->cboxes, boxp, t );
-					else
-						add_string_list_n( &mvars->cboxes, "INBOX", 5 );
-					if (!nboxp)
-						break;
-					boxp = nboxp;
-				}
-			}
-		}
-		merge_actions( mvars->chan, mvars->ops, XOP_HAVE_TYPE, OP_MASK_TYPE, OP_MASK_TYPE );
-		merge_actions( mvars->chan, mvars->ops, XOP_HAVE_CREATE, OP_CREATE, 0 );
-		merge_actions( mvars->chan, mvars->ops, XOP_HAVE_EXPUNGE, OP_EXPUNGE, 0 );
-
-		mvars->state[M] = mvars->state[S] = ST_FRESH;
+	do {
+		mvars->chan = mvars->chanptr->conf;
 		info( "Channel %s\n", mvars->chan->name );
 		mvars->skip = mvars->cben = 0;
+		for (t = 0; t < 2; t++) {
+			if (mvars->chan->stores[t]->failed != FAIL_TEMP) {
+				info( "Skipping due to failed %s store %s.\n", str_ms[t], mvars->chan->stores[t]->name );
+				mvars->skip = 1;
+			}
+		}
+		if (mvars->skip)
+			goto next2;
+		mvars->state[M] = mvars->state[S] = ST_FRESH;
 		if (mvars->chan->stores[M]->driver->flags & mvars->chan->stores[S]->driver->flags & DRV_VERBOSE)
 			labels[M] = "M: ", labels[S] = "S: ";
 		else
 			labels[M] = labels[S] = "";
 		for (t = 0; ; t++) {
-			info( "Opening %s %s...\n", str_ms[t], mvars->chan->stores[t]->name );
+			info( "Opening %s store %s...\n", str_ms[t], mvars->chan->stores[t]->name );
 			mvars->drv[t] = mvars->chan->stores[t]->driver;
 			mvars->drv[t]->open_store( mvars->chan->stores[t], labels[t], store_opened, AUX );
 			if (t)
@@ -611,48 +787,60 @@ sync_chans( main_vars_t *mvars, int ent )
 		if (mvars->state[M] != ST_OPEN || mvars->state[S] != ST_OPEN)
 			return;
 
-		if (!mvars->boxlist && mvars->chan->patterns) {
-			mvars->boxlist = 1;
-			mvars->boxes[M] = filter_boxes( mvars->ctx[M]->boxes, mvars->chan->boxes[M], mvars->chan->patterns );
-			mvars->boxes[S] = filter_boxes( mvars->ctx[S]->boxes, mvars->chan->boxes[S], mvars->chan->patterns );
-			for (mboxp = &mvars->boxes[M]; (mbox = *mboxp); ) {
-				for (sboxp = &mvars->boxes[S]; (sbox = *sboxp); sboxp = &sbox->next)
-					if (!strcmp( sbox->string, mbox->string )) {
-						*sboxp = sbox->next;
-						free( sbox );
-						*mboxp = mbox->next;
-						mbox->next = mvars->cboxes;
-						mvars->cboxes = mbox;
-						goto gotdupe;
-					}
-				mboxp = &mbox->next;
-			  gotdupe: ;
+		if (!mvars->chanptr->boxlist && mvars->chan->patterns) {
+			mvars->chanptr->boxlist = 2;
+			boxes[M] = filter_boxes( mvars->ctx[M]->boxes, mvars->chan->boxes[M], mvars->chan->patterns );
+			boxes[S] = filter_boxes( mvars->ctx[S]->boxes, mvars->chan->boxes[S], mvars->chan->patterns );
+			mboxapp = &mvars->chanptr->boxes;
+			for (mb = sb = 0; ; ) {
+				char *mname = boxes[M] ? boxes[M][mb] : 0;
+				char *sname = boxes[S] ? boxes[S][sb] : 0;
+				if (!mname && !sname)
+					break;
+				mbox = nfmalloc( sizeof(*mbox) );
+				if (!(cmp = !mname - !sname) && !(cmp = cmp_box_names( &mname, &sname ))) {
+					mbox->name = mname;
+					free( sname );
+					mbox->present[M] = mbox->present[S] = BOX_PRESENT;
+					mb++;
+					sb++;
+				} else if (cmp < 0) {
+					mbox->name = mname;
+					mbox->present[M] = BOX_PRESENT;
+					mbox->present[S] = (!mb && !strcmp( mbox->name, "INBOX" )) ? BOX_PRESENT : BOX_ABSENT;
+					mb++;
+				} else {
+					mbox->name = sname;
+					mbox->present[M] = (!sb && !strcmp( mbox->name, "INBOX" )) ? BOX_PRESENT : BOX_ABSENT;
+					mbox->present[S] = BOX_PRESENT;
+					sb++;
+				}
+				mbox->next = 0;
+				*mboxapp = mbox;
+				mboxapp = &mbox->next;
+				boxes_total++;
 			}
+			free( boxes[M] );
+			free( boxes[S] );
+			if (!mvars->list)
+				stats();
 		}
+		mvars->boxptr = mvars->chanptr->boxes;
 
-		if (mvars->list && mvars->multiple)
+		if (mvars->list && chans_total > 1)
 			printf( "%s:\n", mvars->chan->name );
 	  syncml:
 		mvars->done = mvars->cben = 0;
-		if (mvars->boxlist) {
-			while ((mbox = mvars->cboxes)) {
-				mvars->cboxes = mbox->next;
+		if (mvars->chanptr->boxlist) {
+			while ((mbox = mvars->boxptr)) {
+				mvars->boxptr = mbox->next;
 				if (sync_listed_boxes( mvars, mbox ))
 					goto syncw;
 			}
-			for (t = 0; t < 2; t++)
-				while ((mbox = mvars->boxes[t])) {
-					mvars->boxes[t] = mbox->next;
-					if ((mvars->chan->ops[1-t] & OP_MASK_TYPE) && (mvars->chan->ops[1-t] & OP_CREATE)) {
-						if (sync_listed_boxes( mvars, mbox ))
-							goto syncw;
-					} else {
-						free( mbox );
-					}
-				}
 		} else {
 			if (!mvars->list) {
-				sync_boxes( mvars->ctx, mvars->chan->boxes, mvars->chan, done_sync, mvars );
+				int present[] = { BOX_POSSIBLE, BOX_POSSIBLE };
+				sync_boxes( mvars->ctx, mvars->chan->boxes, present, mvars->chan, done_sync, mvars );
 				mvars->skip = 1;
 			  syncw:
 				mvars->cben = 1;
@@ -675,20 +863,21 @@ sync_chans( main_vars_t *mvars, int ent )
 			mvars->skip = mvars->cben = 1;
 			return;
 		}
-		free_string_list( mvars->cboxes );
-		free_string_list( mvars->boxes[M] );
-		free_string_list( mvars->boxes[S] );
-		if (mvars->all) {
-			if (!(mvars->chan = mvars->chan->next))
-				break;
-		} else {
-			if (mvars->chanptr && (mvars->chanptr = mvars->chanptr->next))
-				continue;
-		  gotnone:
-			if (!mvars->argv[++mvars->oind])
-				break;
+		if (mvars->chanptr->boxlist == 2) {
+			for (nmbox = mvars->chanptr->boxes; (mbox = nmbox); ) {
+				nmbox = mbox->next;
+				free( mbox->name );
+				free( mbox );
+			}
+			mvars->chanptr->boxes = 0;
+			mvars->chanptr->boxlist = 0;
 		}
-	}
+	  next2:
+		if (!mvars->list) {
+			chans_done++;
+			stats();
+		}
+	} while ((mvars->chanptr = mvars->chanptr->next));
 	for (t = 0; t < N_DRIVERS; t++)
 		drivers[t]->cleanup();
 }
@@ -718,12 +907,12 @@ store_opened( store_t *ctx, void *aux )
 		return;
 	}
 	mvars->ctx[t] = ctx;
-	if (!mvars->skip && !mvars->boxlist && mvars->chan->patterns && !ctx->listed) {
+	if (!mvars->skip && !mvars->chanptr->boxlist && mvars->chan->patterns && !ctx->listed) {
 		for (flags = 0, cpat = mvars->chan->patterns; cpat; cpat = cpat->next) {
 			const char *pat = cpat->string;
 			if (*pat != '!') {
 				char buf[8];
-				int bufl = snprintf( buf, sizeof(buf), "%s%s", mvars->chan->boxes[t], pat );
+				int bufl = snprintf( buf, sizeof(buf), "%s%s", nz( mvars->chan->boxes[t], "" ), pat );
 				/* Partial matches like "INB*" or even "*" are not considered,
 				 * except implicity when the INBOX lives under Path. */
 				if (starts_with( buf, bufl, "INBOX", 5 )) {
@@ -748,10 +937,12 @@ store_opened( store_t *ctx, void *aux )
 				} else {
 					flags |= LIST_PATH;
 				}
+				debug( "pattern '%s' (effective '%s'): %sPath, %sINBOX\n",
+				       pat, buf, (flags & LIST_PATH) ? "" : "no ",  (flags & LIST_INBOX) ? "" : "no ");
 			}
 		}
 		set_bad_callback( ctx, store_bad, AUX );
-		mvars->drv[t]->list( ctx, flags, store_listed, AUX );
+		mvars->drv[t]->list_store( ctx, flags, store_listed, AUX );
 	} else {
 		mvars->state[t] = ST_OPEN;
 		sync_chans( mvars, E_OPEN );
@@ -762,13 +953,18 @@ static void
 store_listed( int sts, void *aux )
 {
 	MVARS(aux)
-	string_list_t **box;
+	string_list_t **box, *bx;
 
 	switch (sts) {
 	case DRV_CANCELED:
 		return;
 	case DRV_OK:
 		mvars->ctx[t]->listed = 1;
+		if (DFlags & DEBUG_MAIN) {
+			debug( "got mailbox list from %s:\n", str_ms[t] );
+			for (bx = mvars->ctx[t]->boxes; bx; bx = bx->next)
+				debug( "  %s\n", bx->string );
+		}
 		if (mvars->ctx[t]->conf->flat_delim) {
 			for (box = &mvars->ctx[t]->boxes; *box; box = &(*box)->next) {
 				string_list_t *nbox;
@@ -782,8 +978,10 @@ store_listed( int sts, void *aux )
 				}
 			}
 		}
-		if (mvars->ctx[t]->conf->map_inbox)
+		if (mvars->ctx[t]->conf->map_inbox) {
+			debug( "adding mapped inbox to %s: %s\n", str_ms[t], mvars->ctx[t]->conf->map_inbox );
 			add_string_list( &mvars->ctx[t]->boxes, mvars->ctx[t]->conf->map_inbox );
+		}
 		break;
 	default:
 		mvars->ret = mvars->skip = 1;
@@ -794,38 +992,27 @@ store_listed( int sts, void *aux )
 }
 
 static int
-sync_listed_boxes( main_vars_t *mvars, string_list_t *mbox )
+sync_listed_boxes( main_vars_t *mvars, box_ent_t *mbox )
 {
 	if (mvars->chan->boxes[M] || mvars->chan->boxes[S]) {
 		const char *mpfx = nz( mvars->chan->boxes[M], "" );
 		const char *spfx = nz( mvars->chan->boxes[S], "" );
 		if (!mvars->list) {
-			nfasprintf( &mvars->names[M], "%s%s", mpfx, mbox->string );
-			nfasprintf( &mvars->names[S], "%s%s", spfx, mbox->string );
-			free( mbox );
-			sync_boxes( mvars->ctx, (const char **)mvars->names, mvars->chan, done_sync_2_dyn, mvars );
+			nfasprintf( &mvars->names[M], "%s%s", mpfx, mbox->name );
+			nfasprintf( &mvars->names[S], "%s%s", spfx, mbox->name );
+			sync_boxes( mvars->ctx, (const char **)mvars->names, mbox->present, mvars->chan, done_sync_2_dyn, mvars );
 			return 1;
 		}
-		printf( "%s%s <=> %s%s\n", mpfx, mbox->string, spfx, mbox->string );
+		printf( "%s%s <=> %s%s\n", mpfx, mbox->name, spfx, mbox->name );
 	} else {
 		if (!mvars->list) {
-			mvars->names[M] = mvars->names[S] = mbox->string;
-			sync_boxes( mvars->ctx, (const char **)mvars->names, mvars->chan, done_sync_dyn, mvars );
+			mvars->names[M] = mvars->names[S] = mbox->name;
+			sync_boxes( mvars->ctx, (const char **)mvars->names, mbox->present, mvars->chan, done_sync, mvars );
 			return 1;
 		}
-		puts( mbox->string );
+		puts( mbox->name );
 	}
-	free( mbox );
 	return 0;
-}
-
-static void
-done_sync_dyn( int sts, void *aux )
-{
-	main_vars_t *mvars = (main_vars_t *)aux;
-
-	free( ((char *)mvars->names[S]) - offsetof(string_list_t, string) );
-	done_sync( sts, aux );
 }
 
 static void
@@ -844,6 +1031,8 @@ done_sync( int sts, void *aux )
 	main_vars_t *mvars = (main_vars_t *)aux;
 
 	mvars->done = 1;
+	boxes_done++;
+	stats();
 	if (sts) {
 		mvars->ret = 1;
 		if (sts & (SYNC_BAD(M) | SYNC_BAD(S))) {
