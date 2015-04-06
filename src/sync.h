@@ -35,12 +35,14 @@
 #define  OP_MASK_TYPE      (OP_NEW|OP_RENEW|OP_DELETE|OP_FLAGS) /* asserted in the target ops */
 #define OP_EXPUNGE         (1<<4)
 #define OP_CREATE          (1<<5)
-#define XOP_PUSH           (1<<6)
-#define XOP_PULL           (1<<7)
+#define OP_REMOVE          (1<<6)
+#define XOP_PUSH           (1<<8)
+#define XOP_PULL           (1<<9)
 #define  XOP_MASK_DIR      (XOP_PUSH|XOP_PULL)
-#define XOP_HAVE_TYPE      (1<<8)
-#define XOP_HAVE_EXPUNGE   (1<<9)
-#define XOP_HAVE_CREATE    (1<<10)
+#define XOP_HAVE_TYPE      (1<<10)
+#define XOP_HAVE_EXPUNGE   (1<<11)
+#define XOP_HAVE_CREATE    (1<<12)
+#define XOP_HAVE_REMOVE    (1<<13)
 
 typedef struct channel_conf {
 	struct channel_conf *next;
@@ -50,7 +52,7 @@ typedef struct channel_conf {
 	char *sync_state;
 	string_list_t *patterns;
 	int ops[2];
-	unsigned max_messages; /* for slave only */
+	uint max_messages; /* for slave only */
 	signed char expire_unread;
 	char use_internal_date;
 } channel_conf_t;
@@ -74,8 +76,12 @@ extern const char *str_ms[2], *str_hl[2];
 #define SYNC_NOGOOD   16 /* internal */
 #define SYNC_CANCELED 32 /* internal */
 
+#define BOX_POSSIBLE -1
+#define BOX_ABSENT    0
+#define BOX_PRESENT   1
+
 /* All passed pointers must stay alive until cb is called. */
-void sync_boxes( store_t *ctx[], const char *names[], channel_conf_t *chan,
+void sync_boxes( store_t *ctx[], const char *names[], int present[], channel_conf_t *chan,
                  void (*cb)( int sts, void *aux ), void *aux );
 
 #endif

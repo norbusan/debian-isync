@@ -1,3 +1,540 @@
+2015-03-30 12:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	don't insert unnecessary linebreaks upon PassCmd invocation
+
+	the PassCmd will be typically non-interactive (or it will use a gui
+	password agent), so starting a new line just makes the progress counter
+	uglier. so make it configurable and default to no line break.
+
+2015-03-30 12:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	fix crash when no mailboxes match Patterns
+
+	filter_boxes() just returns a null pointer in this case.
+
+	REFMAIL: 20150330121211.GA10315@venus.fritz.box
+
+2015-03-30 10:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix SASL PLAIN for User != $USER
+
+	REFMAIL: 87d29mysnx.fsf@ericabrahamsen.net
+
+2015-03-26 17:09  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, main.c, mbsync.1:
+
+	add debugging for main()
+
+	so far, that's mostly mailbox listing
+
+2015-03-23 07:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, drv_imap.c, drv_maildir.c, main.c, mbsync.1,
+	  sync.c, util.c:
+
+	revamp console output options
+
+	- the old meaning of -V[V] was moved to -D{n|N}, as these are really
+	  debugging options.
+	- don't print the info messages by default; this can be re-enabled with
+	  the -V switch, and is implied by most debug options (it was really
+	  kind of stupid that verbose/debug operation disabled these).
+	- the sync algo/state debugging can be separately enabled with -Ds now.
+
+2015-03-28 16:26  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, drv_imap.c, main.c, mbsync.1, sync.c:
+
+	make progress counters global
+
+	which means they are now cumulative, and include channels and boxes.
+
+2015-03-28 16:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	pre-calculate channel and box lists (as far as possible)
+
+	... instead of determining them on the fly, because
+	- it enables early display of totals (to be used soon)
+	- it enables re-use of the data (to be used at some point)
+	- the code is less cryptic
+
+	note that we leak the data created in main(), consistently with other
+	configuration-related data.
+
+2015-03-26 16:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	don't claim that INBOX is absent even if it was not listed
+
+	IMAP defines that INBOX is always present.
+
+2015-03-26 16:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	rework Pattern application
+
+	instead of creating three lists of mailboxes (common, master, slave)
+	and deriving the mailbox presence from the list being processed, create
+	a single joined list which contains the presence information.
+	additionally, the list is sorted alphabetically (with INBOX first),
+	which is neater.
+
+2015-03-26 16:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, util.c:
+
+	static my_strndup() => extern nfstrndup()
+
+2015-03-26 13:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	make sure that INBOX always exists
+
+	makes the Maildir driver consistent with IMAP.
+
+2015-03-23 19:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't refuse to strip Path just because it's INBOX/
+
+	no ambiguity can result from this, so there is no reason to treat
+	sub-folders of INBOX differently from any other namespace.
+
+2015-03-23 17:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	mask AUTHENTICATE PLAIN commands in debug output
+
+	they are almost as bad as LOGIN.
+
+2015-03-22 12:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	remove double "Logging in ..." when using legacy LOGIN
+
+2015-03-23 18:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	fix out-of-Path INBOX never being matched by Patterns
+
+	"(null)I" really doesn't cut it.
+
+	amends cf0f32f8.
+
+2015-03-22 10:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsyncrc.sample:
+
+	escape backslashes in PassCmd examples
+
+	the config parser strips one level of backslash escapes.
+
+2015-03-21 11:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix bogus "unexpected command continuation request"
+
+	it helps if the code actually does what the comment above it claims.
+	clarify it a bit, so i don't get stupid ideas again.
+
+	This reverts commit cf6a7b4d182d2fe82f7371af9e5a857818f3d02d.
+
+2015-03-07 16:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix chaining of COMPRESS invocation
+
+	it was bound to the use of NAMESPACE, which made no sense at all.
+
+2015-02-15 17:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, config.c, driver.h, drv_imap.c,
+	  drv_maildir.c, main.c, mbsync.1, socket.c, socket.h, sync.c:
+
+	soft-limit peak memory usage
+
+	propagating many messages from a fast store (typically maildir or a
+	local IMAP server) to a slow asynchronous store could cause gigabytes of
+	data being buffered. avoid this by throttling fetches if the target
+	context reports memory usage above a configurable limit.
+
+	REFMAIL: 9737edb14457c71af4ed156c1be0ae59@mpcjanssen.nl
+
+2015-02-15 11:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/config.c:
+
+	complain about excess values supplied to options
+
+2015-02-15 11:19  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	handle clean SSL connection shutdowns
+
+	some servers actually bother to close down the SSL connection before
+	closing the socket.
+
+	this fixes the spurious "unhandled SSL error 6" messages.
+
+	REFMAIL: 20150120114805.GA17586@leeloo.kyriasis.com
+
+2015-02-15 11:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	refactor socket EOF handling
+
+	handling EOF already at the socket level isn't a very good idea - it
+	breaks the abstraction, and makes implementing sane semantics hard.
+
+2015-02-14 13:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	fix crash on shutdown of compressed connection
+
+	the callback may destroy the socket, so it is very unwise to use it for
+	buffering the return value. use a temporary instead.
+
+2015-02-14 12:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	handle clean shutdown of zlib stream
+
+	the server can actually close the zlib stream before closing the socket,
+	so we need to accept it.
+
+	we don't do anything beyond that - the actual EOF will be signaled by
+	the socket, and if the server (erroneously) sends more data, zlib will
+	tell us about it.
+
+	REFMAIL: 1423048708-975-1-git-send-email-alex.bennee@linaro.org
+
+2015-02-15 10:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	don't try to flush if there is nothing to flush
+
+	zlib reports Z_BUF_ERROR when a flush is attempted without any activity
+	since the previous flush (if any). while this is harmless as such,
+	discerning the condition from genuine errors would be much harder than
+	avoiding the pointless flush in the first place.
+
+	REFMAIL: eb5681612f17be777bc8d138d31dd6d6@mpcjanssen.nl
+
+2015-02-15 10:38  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, drv_maildir.c:
+
+	introduce and use pending_wakeup()
+
+	so we don't need to peek into internal data structures.
+
+2015-01-03 23:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, main.c:
+
+	deal sensibly with permanent errors
+
+	don't retry dead Stores for every Channel.
+
+	this also introduces a state for transient errors (specifically, connect
+	failures), but this is currently unused.
+
+2015-01-01 18:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	unify .isyncuidmap.db handling with that of .uidvalidity
+
+	that is, open the database on demand when locking and close it again
+	when unlocking.
+
+2015-01-01 18:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	refactor maildir_set_uid() and maildir_store_uidval()
+
+	the latter now handles both the db and the plaintext file, so the former
+	can make use of it.
+
+2015-01-01 17:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	rename some *uid*() => *uidval*() to better reflect their function
+
+2015-01-01 15:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	lock .uidvalidity on demand
+
+	a maildir re-scan doesn't need to lock it if it doesn't need to allocate
+	any new uids.
+
+2015-01-01 12:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	delay unlocking of .uidvalidity
+
+	it's wasteful to re-lock all the time. instead, unlock in the background
+	after 1-2 seconds of inactivity.
+
+2014-12-29 01:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, driver.h, drv_imap.c, drv_maildir.c, main.c,
+	  mbsync.1, sync.c, sync.h:
+
+	add support for propagating folder deletions
+
+2015-01-17 14:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	don't make intermediate directories proper maildirs
+
+	"phantom" mailboxes waste time on syncing. furthermore, mutt's mailbox
+	navigator provides no means to enter subfolders of maildirs.
+
+2014-12-29 01:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	deal sensibly with incomplete maildir directories
+
+	a directory is no mailbox unless it contains a cur/ subdir.
+	but if that one is present, create new/ and tmp/ if they are missing.
+
+	this makes it possible to resume interrupted maildir creations.
+
+2014-12-29 01:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	factor out maildir_clear_tmp()
+
+2014-12-30 14:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: main.c, sync.c, sync.h:
+
+	supplement open_box() with box existence information from list_store()
+
+	there is no point in trying to open a non-existing box before trying to
+	create it.
+
+2014-12-29 00:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, sync.c:
+
+	split create_box() off from open_box()
+
+	this allows us to do something else than creating missing boxes
+	depending on circumstances. hypothetically, that is.
+
+2015-01-03 22:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	open the mailboxes after loading the sync state
+
+	this allows us to react differently to a box'es absence depending on the
+	state. hypothetically, so far.
+
+2014-12-27 22:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	lock sync state lazily
+
+	don't try to lock it until we actually read or write it.
+	the idea is to not fail with SyncState * if we tried to load the state
+	before selecting a non-existing mailbox. this is ok, because if the
+	mailbox is missing, we obviously have no sync state pertaining to it,
+	either.
+	as a side effect, this allows simplifying an error path.
+
+2014-12-27 22:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, main.c, sync.c:
+
+	split off open_box() from select_box()
+
+	aka prepare_paths() reloaded. we'll need it in a moment.
+
+2014-12-27 22:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	factor out {prepare,lock,save,load}_state()
+
+2014-12-14 16:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/config.c:
+
+	de-duplicate handling of box operation (create & expunge) options
+
+	loops work just fine ...
+
+2014-12-27 21:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, main.c, sync.c:
+
+	make some driver function names more descriptive
+
+2014-12-14 11:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, sync.c:
+
+	rename driver::prepare_opts() => prepare_load()
+
+	... and move it to the right place in the structure and fix the doc to
+	not claim that it is called before select().
+
+2014-12-13 17:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	disable use of LITERAL+ for payloads > 100k
+
+	when LITERAL+ is used, the server has no chance for early rejection of
+	messages. this means that the client can upload megabytes for nothing.
+	so simply don't use LITERAL+ for big messages. of course this adds
+	server roundtrips, but that's tough luck.
+
+	the limit could be arguably higher than 100k (or even configurable).
+	i set it to ~2 sec with my fairly average DSL line.
+
+2014-12-13 17:01  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	fix handling of unsolicited BYE responses
+
+	they can come in at any time, after which we must expect the connection
+	to be closed (and not complain about it).
+
+2014-12-13 16:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix treatment of untagged NO and BAD responses
+
+	they aren't possible greeting responses. however, they are warning resp.
+	error reports from the server, so print them accordingly.
+
+2014-12-13 11:09  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, src/Makefile.am, src/drv_imap.c, src/socket.c,
+	  src/socket.h:
+
+	added support for IMAP DEFLATE
+
+	initial patch by Jesse Weaver <pianohacker@gmail.com>, but mostly
+	rewritten by me.
+
+2014-11-08 14:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: socket.c, socket.h:
+
+	make socket writing buffered
+
+	the primary objective is reducing the number of small SSL packets (which
+	are always padded), but fewer syscalls in the non-SSL case should be
+	good as well.
+
+2014-10-26 20:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	vectorize socket_write()
+
+	the objective is making the buffer code aware of the total size of a
+	write in advance. this commit doesn't take advantage of that yet.
+
+2014-11-30 18:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, util.c:
+
+	remove support for faking notifications
+
+	with the existence of timers, this is now superfluous.
+
+2014-11-30 18:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: socket.c, socket.h:
+
+	use null timer instead of faking a socket notification
+
+2014-11-30 17:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: Makefile.am, common.h, tst_timers.c, util.c:
+
+	add timers to mainloop
+
+	they are called "wakeups", though, as timer_t already exists in time.h.
+
+2014-11-29 18:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, socket.c, socket.h, util.c:
+
+	change socket notifier design
+
+	instead of keeping the structures in an opaque array (which was a shadow
+	of the struct pollfd array if poll() was supported), make them directly
+	addressable.
+
+	this has the advantage that notifier-altering operations (mostly
+	en-/disabling) don't need to look up the structure by file handle each
+	time.
+	on the downside, data locality in the main loop is worse.
+	neither of these have any real effect on performance.
+
+	note that the structures are not allocated separately, but embedded into
+	the the parent structure (like sockets already were).
+
+2014-12-07 11:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	factor out socket_open_internal()
+
+2014-12-07 12:19  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, config.c, driver.h, drv_imap.c,
+	  drv_maildir.c, sync.c, sync.h, util.c:
+
+	introduce uchar, ushort & uint typedefs
+
+2015-01-11 13:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am:
+
+	skip merges during ChangeLog generation
+
 2015-01-11 13:29  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/: driver.h, drv_imap.c, drv_maildir.c, sync.c:
@@ -35,6 +572,33 @@
 	depending on the config this would cause an immediate termination or an
 	indefinite wait.
 
+2014-10-26 21:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	remove stray CRLF from AUTHENTICATE continuations
+
+	this re-introduces 6741bc94 (just a bit differently), thus effectively
+	reverting fbfcfea5. i suppose this extra CRLF is needed by a broken
+	CRAM-MD5 implementation of some server, which is why it was there in the
+	original implementation as well. however, it breaks more pedantic
+	non-broken servers. if somebody complains, we'll need to add a much
+	more sophisticated hack.
+
+2014-10-26 19:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.h:
+
+	cleanup dead cram() prototype
+
+2014-12-29 01:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix more memcmp() abuse
+
+	amends 1217193fb and 4f383a807.
+
 2014-11-08 12:50  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/: socket.c, socket.h:
@@ -50,6 +614,128 @@
 	into our headers otherwise, which would be even uglier.
 
 	REFMAIL: <545442CC.9020400@nodivisions.com>
+
+2014-10-25 15:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README, src/common.h, src/config.c, src/drv_maildir.c,
+	  src/main.c, src/mbsync.1, src/sync.c:
+
+	introduce FieldDelimiter and InfoDelimiter options
+
+	... for windows fs compatibility.
+
+	the maildir-specific InfoDelimiter inherits the global FieldDelimiter
+	(which affects SyncState), based on the assumption that if the sync
+	state is on a windows FS, the mailboxes certainly will be as well, while
+	the inverse is not necessarily true (when running on unix, anyway).
+
+	REFMAIL: <CA+m_8J1ynqAjHRJagvKt9sb31yz047Q7NH-ODRmHOKyfru8vtA@mail.gmail.com>
+
+2014-10-25 13:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, sync.c:
+
+	move orig_name out of store_t
+
+	it's state specific to the synchronizer.
+
+2014-07-27 16:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c:
+
+	nuke home-grown CRAM-MD5 support
+
+	it was obsoleted by SASL support.
+	i deem the additional dependency acceptable when one wants the feature.
+
+2014-07-27 16:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README, configure.ac, src/Makefile.am, src/drv_imap.c,
+	  src/mbsync.1:
+
+	add SASL support
+
+	patch initially by Jack Stone <jwjstone@fastmail.fm>,
+	cleaned up by Jan Synacek <jsynacek@redhat.com>,
+	... and then almost completely rewritten by me. ^^
+
+2014-07-27 17:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	factor out ensure_user() and ensure_password()
+
+2014-07-12 19:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	rework authentication mechanism configuration
+
+	RequireCRAM (another fairly stupid "use if available" option) is now
+	deprecated. instead, the AuthMech option can be used to give a precise
+	list of acceptable authentication mechanisms (which is currently "a bit"
+	short). in particular, this allows *not* using CRAM-MD5 even if it's
+	available.
+
+2014-07-27 13:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1, socket.c, socket.h:
+
+	make it possible to disable usage of system cert store
+
+2014-07-27 16:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: mbsync.1, socket.c:
+
+	require Host if SSL is used despite Tunnel
+
+2014-07-27 13:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: socket.c, socket.h:
+
+	make SSL certificate verification less arcane
+
+	instead of using a callback which messes with the certificate chain
+	verification, simply let OpenSSL ignore errors during that phase and
+	check the result only afterwards.
+
+2014-07-12 18:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, config.h, drv_imap.c, mbsync.1, socket.c,
+	  socket.h:
+
+	re-design SSL/TLS configuration
+
+	the combinations of the various options made quite a mess. additionally,
+	'RequireSSL no' is inherently insecure - "use SSL if available" is plain
+	stupid.
+
+	the old options are still accepted, but will elicit a warning.
+
+2014-07-06 08:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	move use_imaps out of server_conf_t
+
+	it doesn't belong there - it's a property of imap_server_conf_t.
+	the port setup is now done while reading the config.
+
+	this makes socket.[hc] imap-agnostic.
+
+2014-07-12 11:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/: isync.1, main.c:
+
+	deprecate the compat wrapper
+
+	after a decade, it's about time to phase it out.
+
+2014-07-05 14:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
 
 2014-10-04 16:26  Oswald Buddenhagen <ossi@users.sf.net>
 

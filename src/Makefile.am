@@ -6,11 +6,15 @@ SUBDIRS = $(compat_dir)
 bin_PROGRAMS = mbsync mdconvert
 
 mbsync_SOURCES = main.c sync.c config.c util.c socket.c driver.c drv_imap.c drv_maildir.c
-mbsync_LDADD = -ldb $(SSL_LIBS) $(SOCK_LIBS)
+mbsync_LDADD = -ldb $(SSL_LIBS) $(SOCK_LIBS) $(SASL_LIBS) $(Z_LIBS)
 noinst_HEADERS = common.h config.h driver.h sync.h socket.h
 
 mdconvert_SOURCES = mdconvert.c
 mdconvert_LDADD = -ldb
+
+EXTRA_PROGRAMS = tst_timers
+
+tst_timers_SOURCES = tst_timers.c util.c
 
 man_MANS = mbsync.1 mdconvert.1
 

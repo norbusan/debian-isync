@@ -1,4 +1,4 @@
-AC_INIT([isync], [1.1.2])
+AC_INIT([isync], [1.2.0])
 AC_CONFIG_HEADERS([autodefs.h])
 AM_INIT_AUTOMAKE
 
@@ -100,6 +100,45 @@ if test "x$ob_cv_with_ssl" != xno; then
 fi
 AC_SUBST(SSL_LIBS)
 
+have_sasl_paths=
+AC_ARG_WITH(sasl,
+  AS_HELP_STRING([--with-sasl[=PATH]], [where to look for SASL [detect]]),
+  [ob_cv_with_sasl=$withval])
+if test "x$ob_cv_with_sasl" != xno; then
+  case $ob_cv_with_sasl in
+    ""|yes)
+      dnl FIXME: Try various possible paths here...
+      ;;
+    *)
+      SASL_LDFLAGS=-L$ob_cv_with_sasl/lib$libsuff
+      SASL_CPPFLAGS=-I$ob_cv_with_sasl/include
+      ;;
+  esac
+  if test -z "$have_sasl_paths"; then
+    sav_LDFLAGS=$LDFLAGS
+    LDFLAGS="$LDFLAGS $SASL_LDFLAGS"
+    AC_CHECK_LIB(sasl2, sasl_client_init,
+                 [SASL_LIBS="-lsasl2" have_sasl_paths=yes])
+    LDFLAGS=$sav_LDFLAGS
+  fi
+
+  sav_CPPFLAGS=$CPPFLAGS
+  CPPFLAGS="$CPPFLAGS $SASL_CPPFLAGS"
+  AC_CHECK_HEADER(sasl/sasl.h, , [have_sasl_paths=])
+  CPPFLAGS=$sav_CPPFLAGS
+
+  if test -z "$have_sasl_paths"; then
+    if test -n "$ob_cv_with_sasl"; then
+      AC_MSG_ERROR([SASL libs and/or includes were not found where specified])
+    fi
+  else
+    AC_DEFINE(HAVE_LIBSASL, 1, [if you have the SASL libraries])
+    CPPFLAGS="$CPPFLAGS $SASL_CPPFLAGS"
+    LDFLAGS="$LDFLAGS $SASL_LDFLAGS"
+  fi
+fi
+AC_SUBST(SASL_LIBS)
+
 AC_CACHE_CHECK([for Berkley DB >= 4.2], ac_cv_berkdb4,
   [ac_cv_berkdb4=no
    AC_TRY_LINK([#include <db.h>],
@@ -110,6 +149,15 @@ AC_CACHE_CHECK([for Berkley DB >= 4.2], ac_cv_berkdb4,
 if test "x$ac_cv_berkdb4" = xno; then
   AC_MSG_ERROR([Berkley DB >= 4.2 not found.])
 fi
+
+have_zlib=
+AC_CHECK_LIB([z], [deflate],
+    [AC_CHECK_HEADER(zlib.h,
+        [have_zlib=1
+         AC_SUBST([Z_LIBS], ["-lz"])
+         AC_DEFINE([HAVE_LIBZ], 1, [if you have the zlib library])]
+     )]
+)
 
 AC_ARG_ENABLE(compat,
   AC_HELP_STRING([--disable-compat], [don't include isync compatibility wrapper [no]]),
@@ -122,12 +170,20 @@ AM_CONDITIONAL(with_compat, test "x$ob_cv_enable_compat" != xno)
 AC_CONFIG_FILES([Makefile src/Makefile src/compat/Makefile isync.spec])
 AC_OUTPUT
 
+AC_MSG_RESULT()
 if test -n "$have_ssl_paths"; then
-    AC_MSG_RESULT([
-Using SSL
-])
+    AC_MSG_RESULT([Using SSL])
 else
-    AC_MSG_RESULT([
-Not using SSL
-])
+    AC_MSG_RESULT([Not using SSL])
 fi
+if test -n "$have_sasl_paths"; then
+    AC_MSG_RESULT([Using SASL])
+else
+    AC_MSG_RESULT([Not using SASL])
+fi
+if test -n "$have_zlib"; then
+    AC_MSG_RESULT([Using zlib])
+else
+    AC_MSG_RESULT([Not using zlib])
+fi
+AC_MSG_RESULT()

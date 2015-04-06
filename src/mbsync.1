@@ -1,7 +1,7 @@
 .ig
 \" mbsync - mailbox synchronizer
 \" Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
-\" Copyright (C) 2002-2004,2011-2013 Oswald Buddenhagen <ossi@users.sf.net>
+\" Copyright (C) 2002-2004,2011-2015 Oswald Buddenhagen <ossi@users.sf.net>
 \" Copyright (C) 2004 Theodore Y. Ts'o <tytso@mit.edu>
 \"
 \"  This program is free software; you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 \" As a special exception, mbsync may be linked with the OpenSSL library,
 \" despite that library's more restrictive license.
 ..
-.TH mbsync 1 "2013 Dec 14"
+.TH mbsync 1 "2015 Mar 22"
 ..
 .SH NAME
 mbsync - synchronize IMAP4 and Maildir mailboxes
@@ -58,6 +58,9 @@ and exit.
 \fB-C\fR[\fBm\fR][\fBs\fR], \fB--create\fR[\fB-master\fR|\fB-slave\fR]
 Override any \fBCreate\fR options from the config file. See below.
 .TP
+\fB-R\fR[\fBm\fR][\fBs\fR], \fB--remove\fR[\fB-master\fR|\fB-slave\fR]
+Override any \fBRemove\fR options from the config file. See below.
+.TP
 \fB-X\fR[\fBm\fR][\fBs\fR], \fB--expunge\fR[\fB-master\fR|\fB-slave\fR]
 Override any \fBExpunge\fR options from the config file. See below.
 .TP
@@ -75,13 +78,30 @@ Display a summary of command line options.
 Display version information.
 .TP
 \fB-V\fR, \fB--verbose\fR
-Enable \fIverbose\fR mode, which displays the IMAP4 network traffic.
+Enable \fIverbose\fR mode, which displays what is currently happening.
 .TP
-\fB-D\fR, \fB--debug\fR
-Enable printing \fIdebug\fR information.
+\fB-D\fR[\fBC\fR][\fBm\fR][\fBM\fR][\fBn\fR|\fBN\fR][\fBs\fR]\fR]\fR,\
+ \fB--debug\fR[\fB-crash\fR|\fB-maildir\fR|\fB-main\fR|\fB-net\fR|\fB-net-all\fR|\fB-sync\fR]
+Enable debugging categories:
+.in +4
+\fBC\fR, \fBcrash\fR - use built-in crash handler
+.br
+\fBm\fR, \fBmaildir\fR - print maildir debug info
+.br
+\fBM\fR, \fBmain\fR - print main debug info
+.br
+\fBn\fR, \fBnet\fR - print network traffic (protocol only)
+.br
+\fBN\fR, \fBnet-all\fR - print network traffic (including payloads)
+.br
+\fBs\fR, \fBsync\fR - print synchronization debug info
+.in -4
+All categories except \fBcrash\fR implictly enable \fIverbose\fR mode.
+Without category specification, all categories except net-all are enabled.
 .TP
 \fB-q\fR, \fB--quiet\fR
-Suppress informational messages.
+Suppress progress counters (this is implicit if stdout is no TTY,
+or any debugging categories are enabled) and notices.
 If specified twice, suppress warning messages as well.
 ..
 .SH CONFIGURATION
@@ -229,6 +249,13 @@ The location of the \fBINBOX\fR. This is \fInot\fR relative to \fBPath\fR,
 but it is allowed to place the \fBINBOX\fR inside the \fBPath\fR.
 (Default: \fI~/Maildir\fR)
 ..
+.TP
+\fBInfoDelimiter\fR \fIdelim\fR
+The character used to delimit the info field from a message's basename.
+The Maildir standard defines this to be the colon, but this is incompatible
+with DOS/Windows file systems.
+(Default: the value of \fBFieldDelimiter\fR)
+..
 .SS IMAP4 Accounts
 .TP
 \fBIMAPAccount\fR \fIname\fR
@@ -238,8 +265,9 @@ Define the IMAP4 Account \fIname\fR, opening a section for its parameters.
 \fBHost\fR \fIhost\fR
 Specify the DNS name or IP address of the IMAP server.
 .br
-If \fBTunnel\fR is used, this setting is used only for SSL host certificate
-verification, if provided.
+If \fBTunnel\fR is used, this setting is needed only if \fBSSLType\fR is
+not \fINone\fR and \fBCertificateFile\fR is not used,
+in which case the host name is used for certificate subject verification.
 ..
 .TP
 \fBPort\fR \fIport\fR
@@ -260,41 +288,58 @@ If neither a password nor a password command is specified in the
 configuration file, \fBmbsync\fR will prompt you for a password.
 ..
 .TP
-\fBPassCmd\fR \fIcommand\fR
+\fBPassCmd\fR [\fB+\fR]\fIcommand\fR
 Specify a shell command to obtain a password rather than specifying a
 password directly. This allows you to use password files and agents.
 The command must produce exactly one line on stdout; the trailing newline is
 optional.
+Prepend \fB+\fR to the command to indicate that it produces TTY output
+(e.g., a decryption password prompt); failure to do so will merely produce
+messier output.
 ..
 .TP
 \fBTunnel\fR \fIcommand\fR
 Specify a command to run to establish a connection rather than opening a TCP
 socket.  This allows you to run an IMAP session over an SSH tunnel, for
 example.
+..
+.TP
+\fBAuthMechs\fR \fItype\fR ...
+The list of acceptable authentication mechanisms.
+In addition to the mechanisms listed in the SASL registry (link below),
+the legacy IMAP \fBLOGIN\fR mechanism is known.
+The wildcard \fB*\fR represents all mechanisms that are deemed secure
+enough for the current \fBSSLType\fR setting.
+The actually used mechanism is the most secure choice from the intersection
+of this list, the list supplied by the server, and the installed SASL modules.
+(Default: \fB*\fR)
+..
+.TP
+\fBSSLType\fR {\fINone\fR|\fISTARTTLS\fR|\fIIMAPS\fR}
+Select the connection security/encryption method:
 .br
-If \fBUseIMAPS\fR is disabled and the tunnel opens a preauthenticated
-connection, \fBRequireSSL\fR also needs to be disabled.
-If the connection is not preauthenticated, but the tunnel is secure,
-disabling \fBRequireSSL\fR and \fBUseTLSv1\fR is recommended.
-..
-.TP
-\fBRequireCRAM\fR \fIyes\fR|\fIno\fR
-If set to \fIyes\fR, \fBmbsync\fR will abort the connection if no CRAM-MD5
-authentication is possible.  (Default: \fIno\fR)
-..
-.TP
-\fBUseIMAPS\fR \fIyes\fR|\fIno\fR
-If set to \fIyes\fR, the default for \fBPort\fR is changed to 993 and
-\fBmbsync\fR will start SSL negotiation immediately after establishing
-the connection to the server.
+\fINone\fR - no security.
+This is the default when \fBTunnel\fR is set, as tunnels are usually secure.
 .br
-Note that modern servers support SSL on the regular IMAP port 143 via the
-STARTTLS extension, which will be used automatically by default.
+\fISTARTTLS\fR - security is established via the STARTTLS extension
+after connecting the regular IMAP port 143. Most servers support this,
+so it is the default (unless a tunnel is used).
+.br
+\fIIMAPS\fR - security is established by starting SSL/TLS negotiation
+right after connecting the secure IMAP port 993.
 ..
 .TP
-\fBRequireSSL\fR \fIyes\fR|\fIno\fR
-\fBmbsync\fR will abort the connection if a TLS/SSL session cannot be
-established with the IMAP server.  (Default: \fIyes\fR)
+\fBSSLVersions\fR [\fISSLv2\fR] [\fISSLv3\fR] [\fITLSv1\fR] [\fITLSv1.1\fR] [\fITLSv1.2\fR]
+Select the acceptable SSL/TLS versions.
+Use of SSLv2 is strongly discouraged for security reasons, but might be the
+only option on some very old servers.
+Generally, the newest TLS version is recommended, but as this confuses some
+servers, \fBTLSv1\fR is the default.
+..
+.TP
+\fBSystemCertificates\fR \fIyes\fR|\fIno\fR
+Whether the system's default root cerificate store should be loaded.
+(Default: \fIyes\fR)
 ..
 .TP
 \fBCertificateFile\fR \fIpath\fR
@@ -302,35 +347,9 @@ File containing additional X.509 certificates used to verify server
 identities. Directly matched peer certificates are always trusted,
 regardless of validity.
 .br
-Note that the system's default certificate store is always used and should
-not be specified here.
-..
-.TP
-\fBUseSSLv2\fR \fIyes\fR|\fIno\fR
-Use SSLv2 for communication with the IMAP server over SSL?
-.br
-Note that this option is deprecated for security reasons.
-(Default: \fIno\fR)
-..
-.TP
-\fBUseSSLv3\fR \fIyes\fR|\fIno\fR
-Use SSLv3 for communication with the IMAP server over SSL?
-(Default: \fIno\fR)
-..
-.TP
-\fBUseTLSv1\fR \fIyes\fR|\fIno\fR
-Use TLSv1 for communication with the IMAP server over SSL?
-(Default: \fIyes\fR)
-..
-.TP
-\fBUseTLSv1.1\fR \fIyes\fR|\fIno\fR
-Use TLSv1.1 for communication with the IMAP server over SSL?
-(Default: \fIno\fR)
-..
-.TP
-\fBUseTLSv1.2\fR \fIyes\fR|\fIno\fR
-Use TLSv1.2 for communication with the IMAP server over SSL?
-(Default: \fIno\fR)
+Note that the system's default certificate store is always used
+(unless \fBSystemCertificates\fR is disabled)
+and should not be specified here.
 ..
 .TP
 \fBPipelineDepth\fR \fIdepth\fR
@@ -487,7 +506,20 @@ Note that it is not allowed to assert a cell in two ways, e.g.
 \fBCreate\fR {\fINone\fR|\fIMaster\fR|\fISlave\fR|\fIBoth\fR}
 Automatically create missing mailboxes [on the Master/Slave].
 Otherwise print an error message and skip that mailbox pair if a mailbox
-does not exist.
+and the corresponding sync state does not exist.
+(Global default: \fINone\fR)
+..
+.TP
+\fBRemove\fR {\fINone\fR|\fIMaster\fR|\fISlave\fR|\fIBoth\fR}
+Propagate mailbox deletions [to the Master/Slave].
+Otherwise print an error message and skip that mailbox pair if a mailbox
+does not exist but the corresponding sync state does.
+.br
+For MailDir mailboxes it is sufficient to delete the cur/ subdirectory to
+mark them as deleted. This ensures compatibility with \fBSyncState *\fR.
+.br
+Note that for safety, non-empty mailboxes are never deleted.
+.br
 (Global default: \fINone\fR)
 ..
 .TP
@@ -507,7 +539,7 @@ date\fR) is actually the arrival time, but it is usually close enough.
 (Default: \fIno\fR)
 ..
 .P
-\fBSync\fR, \fBCreate\fR, \fBExpunge\fR,
+\fBSync\fR, \fBCreate\fR, \fBRemove\fR, \fBExpunge\fR,
 \fBMaxMessages\fR, and \fBCopyArrivalDate\fR
 can be used before any section for a global effect.
 The global settings are overridden by Channel-specific options,
@@ -524,7 +556,8 @@ mailbox name to make up a complete path.
 .br
 This option can be used outside any section for a global effect. In this case
 the appended string is made up according to the pattern
-\fB:\fImaster\fB:\fImaster-box\fB_:\fIslave\fB:\fIslave-box\fR.
+\fB:\fImaster\fB:\fImaster-box\fB_:\fIslave\fB:\fIslave-box\fR
+(see also \fBFieldDelimiter\fR below).
 .br
 (Global default: \fI~/.mbsync/\fR).
 ..
@@ -559,6 +592,39 @@ Enabling it is a wise choice for file systems mounted with data=writeback,
 in particular modern systems like ext4, btrfs and xfs. The performance impact
 on older file systems may be disproportionate.
 (Default: \fIyes\fR)
+..
+.TP
+\fBFieldDelimiter\fR \fIdelim\fR
+The character to use to delimit fields in the string appended to a global
+\fBSyncState\fR.
+\fBmbsync\fR prefers to use the colon, but this is incompatible with
+DOS/Windows file systems.
+This option is meaningless for \fBSyncState\fR if the latter is \fB*\fR,
+obviously. However, it also determines the default of \fBInfoDelimiter\fR.
+(Global default: \fI;\fR on Windows, \fI:\fR everywhere else)
+..
+.TP
+\fBBufferLimit\fR \fIsize\fR[\fBk\fR|\fBm\fR][\fBb\fR]
+The per-Channel, per-direction instantaneous memory usage above which
+\fBmbsync\fR will refrain from using more memory. Note that this is no
+absolute limit, as even a single message can consume more memory than
+this.
+(Default: \fI10M\fR)
+..
+.SH CONSOLE OUTPUT
+If \fBmbsync\fR's output is connected to a console, it will print progress
+counters by default. The output will look like this:
+.P
+.in +4
+C: 1/2  B: 3/4  M: +13/13 *23/42 #0/0  S: +0/7 *0/0 #0/0
+.in -4
+.P
+This represents the cumulative progress over channels, boxes, and messages
+affected on master and slave, respectively.
+The message counts represent added messages, messages with updated flags,
+and trashed messages, respectively.
+No attempt is made to calculate the totals in advance, so they grow over
+time as more information is gathered.
 ..
 .SH RECOMMENDATIONS
 Make sure your IMAP server does not auto-expunge deleted messages - it is
@@ -611,6 +677,9 @@ Directory containing synchronization state files
 mdconvert(1), isync(1), mutt(1), maildir(5)
 .P
 Up to date information on \fBmbsync\fR can be found at http://isync.sf.net/
+.P
+SASL mechanisms are listed at
+http://www.iana.org/assignments/sasl-mechanisms/sasl-mechanisms.xhtml
 ..
 .SH AUTHORS
 Originally written by Michael R. Elkins,
