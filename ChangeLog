@@ -1,3 +1,293 @@
+2015-11-06 07:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/isync.1, compat/isyncrc.sample, mbsyncrc.sample:
+
+	fix CertificateFile docs & samples
+
+	the mbsync manual says explicitly that the system's default certificate
+	store should *not* be specified.
+	however, the isync manual talked about CA certificates, which is (and
+	always was) exactly wrong.
+	also adjust both .sample rc files.
+
+2015-09-27 10:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	don't crash when dns lookup fails (ipv6 path)
+
+	we call socket_connect_bail() when getaddrinfo() failed, so it must deal
+	with no addrinfo being there yet.
+
+2015-09-27 09:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	remove legacy (bsd-style) locking
+
+	flock() may be implemented via fcntl(), which may cause the process to
+	deadlock itself when trying to apply both types of locks. this is the
+	case even on linux when the file lives on NFS.
+
+	it's unlikely that anything except mbsync would try to access the
+	.uidvalidity files anyway, so there is no point in trying to be
+	compatible with anything else ...
+
+	REFMAIL: uddy4g589ym.fsf@eismej-u14.spgear.lab.emc.com
+
+2015-09-07 10:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README, src/mbsync.1:
+
+	mention safety of concurrent access; wording improvements
+
+2015-09-01 12:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, drv_imap.c, sync.c, util.c:
+
+	tolerate case changes in X-TUID header name
+
+	it is legal for an email system to simply change the case of rfc2822
+	headers, and at least one imap server apparently does just that.
+	this would lead to us not finding our own header, which is obviously not
+	helpful.
+
+	REFMAIL: CA+fD2U3hJEszmvwBsXEpTsaWgJ2Dh373mCESM3M0kg3ZwAYjaw@mail.gmail.com
+
+2015-07-18 16:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	fix configure for static libdb, libnsl, and libsocket
+
+	the right variable to put libraries into is LIBS, not LDFLAGS.
+
+	REFMAIL: CAABPU68s3uy0Gv-vfAGzeNn0s5Ow--+p+y8W7xE7US_7iXpdjw@mail.gmail.com
+
+2015-05-24 16:20  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README:
+
+	list more deps (sasl and zlib)
+
+2015-05-24 16:20  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README:
+
+	less technical info
+
+	no point in listing IMAP extensions in the README
+
+2015-05-17 15:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't make bogus attempts at enabling compression
+
+	recycling server connections skips everything up to setting up the
+	prefix (Path/NAMESPACE). "everything" should obviously include enabling
+	compression, as that must be done at most once per connection.
+
+2015-05-09 16:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2015-05-09 15:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	rename misnamed functions concerning sending imap commands
+
+	cmd_submittable() => cmd_sendable()
+	cancel_submitted_imap_cmds() => cancel_sent_imap_cmds()
+
+	the sequence is exec -> submit -> send.
+
+2015-05-09 17:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	ensure direct exit after calling back
+
+	any structures may be invalid after callback invocation.
+
+	this has the side effect that the socket write callback now returns
+	void, like all other callbacks do.
+
+2015-05-09 17:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	fix socket_write() recursion
+
+	the synchronous writing to the socket would have typically invoked the
+	write callback, which would flush further commands, thus recursing.
+
+	we take the easy way out and make it fully asynchronous, i.e., no data
+	is sent before (re-)entering the event loop.
+
+	this also has the effect that socket_write() cannot fail any more, and
+	any errors will be reported asynchronously. this is consistent with
+	socket_read(), and produces cleaner code.
+
+	this introduces a marginal performance regression: the maildir driver is
+	synchronous, so all messages (which fit into memory) will be read before
+	any data is sent. this is not considered relevant.
+
+2015-05-09 15:12  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix #ifdefs around AuthMech & RequireCRAM
+
+	these options don't depend on HAVE_LIBSSL.
+
+2015-05-09 15:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	mask AUTHENTICATE PLAIN commands in error output as well
+
+	amends bd0f3af5.
+
+2015-05-02 16:59  Felix Janda <felix.janda@posteo.de>
+
+	* configure.ac:
+
+	Add configure option for zlib
+
+2015-05-01 16:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	use \fB and \fI consistently, take 2
+
+	\fB means literal, while \fI means placeholder, value for placeholder,
+	or emphasis.
+
+2015-05-01 09:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README, configure.ac:
+
+	fix consistent misspelling of Berkeley
+
+2015-05-01 09:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README, configure.ac:
+
+	the minimum required bdb version is in fact 4.1
+
+	this is the one that introduced the transaction argument to db->open().
+
+2015-05-01 09:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	make the bdb check actually check for a linkable library
+
+	it only checked whether the header is compilable.
+
+	amends e1d0ea8a1.
+
+2015-04-26 18:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, main.c:
+
+	make skipping of failed stores more thorough
+
+	in the case of imap stores, the failure is bound to the server config,
+	not just the store config.
+
+	that means that the storage of the failure state needs to be private to
+	the driver, accessible only through a function.
+
+2015-04-26 10:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	fix -DN not implying -Dn
+
+2015-04-18 09:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	make it possible to nest maildir Path under Inbox
+
+	simply make the code symmetrical to the inverse case.
+
+	note that the result will be sort of awkward, as the folders under Path
+	(and thus the subfolders of Inbox) don't start with a dot, while the
+	subfolders of these folders do. this needs to be addressed separately.
+
+2015-04-18 09:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	make handling of Inbox-in-Path nesting less obfuscated
+
+	when we run into Inbox while listing Path, check whether Inbox is being
+	listed anyway, and just skip it if so, instead of listing it right away
+	and resetting LIST_INBOX (and thus having a calling order dependency).
+
+2015-04-18 08:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't list IMAP Path under INBOX twice
+
+	if NAMESPACE is "INBOX.", listing INBOX recursively will already include
+	it.
+
+	REFMAIL: 1890363108.1020695.1428757117731.JavaMail.yahoo@mail.yahoo.com
+
+2015-04-13 07:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	fix uninitialized variable warning
+
+	the returned UID is not used when trashing messages, but we still
+	shouldn't just return an undefined value.
+
+2015-04-11 18:06  Reimar Döffinger <Reimar.Doeffinger@gmx.de>
+
+	* README, configure.ac, src/Makefile.am,
+	  src/compat/Makefile.am, src/drv_maildir.c:
+
+	Make Berkley DB an optional dependency.
+
+	It doesn't seem necessary for any of the basic functionality.
+
+	Signed-off-by: Reimar Döffinger <Reimar.Doeffinger@gmx.de>
+
+2015-04-09 08:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix SASL, take 2
+
+	USER (the authorization identity) specifies whom to act for.
+	AUTHNAME (the authentication identity) specifies who is acting (and
+	thus whose PASS is being used).
+	USER is derived from AUTHNAME if omitted, but apparently the
+	GSS-API module automatically adds the REALM, which is not helpful.
+
+	it appears to be common to set both USER and AUTHNAME to the same value,
+	so let's just do it as well.
+
+	REFMAIL: 20150407194807.GA1714@leeloo.kyriasis.com
+
+2015-04-03 20:38  Dmitrij D. Czarkoff <czarkoff@gmail.com>
+
+	* src/drv_maildir.c:
+
+	fix crash in maildir_set_msg_flags()
+
+	memcpy(3)'s behavior is undefined when source and destination addresses
+	overlap, and it actually crashed on OpenBSD. use memmove() instead.
+
 2015-03-30 12:52  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* src/: drv_imap.c, mbsync.1:
