@@ -1,8 +1,10 @@
-isync (1.2.1-1) UNRELEASED; urgency=medium
+isync (1.2.1-1) experimental; urgency=medium
 
+  [ Evgeni Golov ]
   * New upstream release.
+  * Explicitly Build-Depend on zlib1g-dev
 
- -- Evgeni Golov <evgeni@debian.org>  Sun, 06 Dec 2015 16:53:41 +0100
+ -- Alessandro Ghedini <ghedo@debian.org>  Sat, 09 Jan 2016 12:56:39 +0000
 
 isync (1.2.0-1) experimental; urgency=medium
 
