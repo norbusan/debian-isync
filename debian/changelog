@@ -1,3 +1,15 @@
+isync (1.2.1-2) unstable; urgency=low
+
+  * Upload to unstable (with urgency=low)
+  * Don't call uupdate after uscan
+  * Import patch to fix build with OpenSSL 1.1 (Closes: #828357)
+  * Bump Standards-Version to 3.9.8 (no changes needed)
+  * Add pkg-config to Build-Depends
+  * Update Vcs-* URLs
+  * Fix spelling-error-in-binary
+
+ -- Alessandro Ghedini <ghedo@debian.org>  Sat, 19 Nov 2016 17:14:42 +0000
+
 isync (1.2.1-1) experimental; urgency=medium
 
   [ Evgeni Golov ]
