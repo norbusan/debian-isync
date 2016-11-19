@@ -36,6 +36,15 @@
 #include <time.h>
 #include <sys/wait.h>
 
+#ifdef HAVE_LIBSASL
+# include <sasl/sasl.h>
+# include <sasl/saslutil.h>
+#endif
+
+#ifdef HAVE_LIBSSL
+enum { SSL_None, SSL_STARTTLS, SSL_IMAPS };
+#endif
+
 typedef struct imap_server_conf {
 	struct imap_server_conf *next;
 	char *name;
@@ -44,11 +53,11 @@ typedef struct imap_server_conf {
 	char *pass;
 	char *pass_cmd;
 	int max_in_progress;
+	string_list_t *auth_mechs;
 #ifdef HAVE_LIBSSL
-	char use_ssl;
-	char require_ssl;
-	char require_cram;
+	char ssl_type;
 #endif
+	char failed;
 } imap_server_conf_t;
 
 typedef struct imap_store_conf {
@@ -92,25 +101,33 @@ typedef struct imap_store {
 	int ref_count;
 	/* trash folder's existence is not confirmed yet */
 	enum { TrashUnknown, TrashChecking, TrashKnown } trashnc;
-	unsigned got_namespace:1;
+	uint got_namespace:1;
 	char *delimiter; /* hierarchy delimiter */
 	list_t *ns_personal, *ns_other, *ns_shared; /* NAMESPACE info */
 	message_t **msgapp; /* FETCH results */
-	unsigned caps; /* CAPABILITY results */
+	uint caps; /* CAPABILITY results */
+	string_list_t *auth_mechs;
 	parse_list_state_t parse_list_sts;
 	/* command queue */
 	int nexttag, num_in_progress;
 	struct imap_cmd *pending, **pending_append;
 	struct imap_cmd *in_progress, **in_progress_append;
+	int buffer_mem; /* memory currently occupied by buffers in the queue */
 
 	/* Used during sequential operations like connect */
 	enum { GreetingPending = 0, GreetingBad, GreetingOk, GreetingPreauth } greeting;
+	int expectBYE; /* LOGOUT is in progress */
+	int expectEOF; /* received LOGOUT's OK or unsolicited BYE */
 	int canceling; /* imap_cancel() is in progress */
 	union {
 		void (*imap_open)( store_t *srv, void *aux );
 		void (*imap_cancel)( void *aux );
 	} callbacks;
 	void *callback_aux;
+#ifdef HAVE_LIBSASL
+	sasl_conn_t *sasl;
+	int sasl_cont;
+#endif
 
 	conn_t conn; /* this is BIG, so put it last */
 } imap_store_t;
@@ -130,8 +147,8 @@ struct imap_cmd {
 		int uid; /* to identify fetch responses */
 		char high_prio; /* if command is queued, put it at the front of the queue. */
 		char to_trash; /* we are storing to trash, not current. */
-		char create; /* create the mailbox if we get an error ... */
-		char trycreate; /* ... but only if this is true or the server says so. */
+		char create; /* create the mailbox if we get an error which suggests so. */
+		char failok; /* Don't complain about NO response. */
 	} param;
 };
 
@@ -174,26 +191,32 @@ struct imap_cmd_refcounted {
 
 enum CAPABILITY {
 	NOLOGIN = 0,
+#ifdef HAVE_LIBSASL
+	SASLIR,
+#endif
 #ifdef HAVE_LIBSSL
-	CRAM,
 	STARTTLS,
 #endif
 	UIDPLUS,
 	LITERALPLUS,
 	MOVE,
-	NAMESPACE
+	NAMESPACE,
+	COMPRESS_DEFLATE
 };
 
 static const char *cap_list[] = {
 	"LOGINDISABLED",
+#ifdef HAVE_LIBSASL
+	"SASL-IR",
+#endif
 #ifdef HAVE_LIBSSL
-	"AUTH=CRAM-MD5",
 	"STARTTLS",
 #endif
 	"UIDPLUS",
 	"LITERAL+",
 	"MOVE",
-	"NAMESPACE"
+	"NAMESPACE",
+	"COMPRESS=DEFLATE"
 };
 
 #define RESP_OK       0
@@ -235,23 +258,27 @@ static void
 done_imap_cmd( imap_store_t *ctx, struct imap_cmd *cmd, int response )
 {
 	cmd->param.done( ctx, cmd, response );
-	free( cmd->param.data );
+	if (cmd->param.data) {
+		free( cmd->param.data );
+		ctx->buffer_mem -= cmd->param.data_len;
+	}
 	free( cmd->cmd );
 	free( cmd );
 }
 
-static int
+static void
 send_imap_cmd( imap_store_t *ctx, struct imap_cmd *cmd )
 {
-	int bufl, litplus;
+	int bufl, litplus, iovcnt = 1;
 	const char *buffmt;
+	conn_iovec_t iov[3];
 	char buf[1024];
 
 	cmd->tag = ++ctx->nexttag;
 	if (!cmd->param.data) {
 		buffmt = "%d %s\r\n";
 		litplus = 0;
-	} else if ((cmd->param.to_trash && ctx->trashnc == TrashUnknown) || !CAP(LITERALPLUS)) {
+	} else if ((cmd->param.to_trash && ctx->trashnc == TrashUnknown) || !CAP(LITERALPLUS) || cmd->param.data_len >= 100*1024) {
 		buffmt = "%d %s{%d}\r\n";
 		litplus = 0;
 	} else {
@@ -260,39 +287,42 @@ send_imap_cmd( imap_store_t *ctx, struct imap_cmd *cmd )
 	}
 	bufl = nfsnprintf( buf, sizeof(buf), buffmt,
 	                   cmd->tag, cmd->cmd, cmd->param.data_len );
-	if (DFlags & VERBOSE) {
+	if (DFlags & DEBUG_NET) {
 		if (ctx->num_in_progress)
 			printf( "(%d in progress) ", ctx->num_in_progress );
-		if (!starts_with( cmd->cmd, -1, "LOGIN", 5 ))
-			printf( "%s>>> %s", ctx->label, buf );
-		else
+		if (starts_with( cmd->cmd, -1, "LOGIN", 5 ))
 			printf( "%s>>> %d LOGIN <user> <pass>\n", ctx->label, cmd->tag );
+		else if (starts_with( cmd->cmd, -1, "AUTHENTICATE PLAIN", 18 ))
+			printf( "%s>>> %d AUTHENTICATE PLAIN <authdata>\n", ctx->label, cmd->tag );
+		else
+			printf( "%s>>> %s", ctx->label, buf );
 		fflush( stdout );
 	}
-	if (socket_write( &ctx->conn, buf, bufl, KeepOwn ) < 0)
-		goto bail;
+	iov[0].buf = buf;
+	iov[0].len = bufl;
+	iov[0].takeOwn = KeepOwn;
 	if (litplus) {
-		char *p = cmd->param.data;
+		iov[1].buf = cmd->param.data;
+		iov[1].len = cmd->param.data_len;
+		iov[1].takeOwn = GiveOwn;
 		cmd->param.data = 0;
-		if (socket_write( &ctx->conn, p, cmd->param.data_len, GiveOwn ) < 0 ||
-		    socket_write( &ctx->conn, "\r\n", 2, KeepOwn ) < 0)
-			goto bail;
+		ctx->buffer_mem -= cmd->param.data_len;
+		iov[2].buf = "\r\n";
+		iov[2].len = 2;
+		iov[2].takeOwn = KeepOwn;
+		iovcnt = 3;
 	}
+	socket_write( &ctx->conn, iov, iovcnt );
 	if (cmd->param.to_trash && ctx->trashnc == TrashUnknown)
 		ctx->trashnc = TrashChecking;
 	cmd->next = 0;
 	*ctx->in_progress_append = cmd;
 	ctx->in_progress_append = &cmd->next;
 	ctx->num_in_progress++;
-	return 0;
-
-  bail:
-	done_imap_cmd( ctx, cmd, RESP_CANCEL );
-	return -1;
 }
 
 static int
-cmd_submittable( imap_store_t *ctx, struct imap_cmd *cmd )
+cmd_sendable( imap_store_t *ctx, struct imap_cmd *cmd )
 {
 	struct imap_cmd *cmdp;
 
@@ -305,18 +335,16 @@ cmd_submittable( imap_store_t *ctx, struct imap_cmd *cmd )
 	       ctx->num_in_progress < ((imap_store_conf_t *)ctx->gen.conf)->server->max_in_progress;
 }
 
-static int
+static void
 flush_imap_cmds( imap_store_t *ctx )
 {
 	struct imap_cmd *cmd;
 
-	while ((cmd = ctx->pending) && cmd_submittable( ctx, cmd )) {
+	if ((cmd = ctx->pending) && cmd_sendable( ctx, cmd )) {
 		if (!(ctx->pending = cmd->next))
 			ctx->pending_append = &ctx->pending;
-		if (send_imap_cmd( ctx, cmd ) < 0)
-			return -1;
+		send_imap_cmd( ctx, cmd );
 	}
-	return 0;
 }
 
 static void
@@ -332,7 +360,7 @@ cancel_pending_imap_cmds( imap_store_t *ctx )
 }
 
 static void
-cancel_submitted_imap_cmds( imap_store_t *ctx )
+cancel_sent_imap_cmds( imap_store_t *ctx )
 {
 	struct imap_cmd *cmd;
 
@@ -343,7 +371,7 @@ cancel_submitted_imap_cmds( imap_store_t *ctx )
 	}
 }
 
-static int
+static void
 submit_imap_cmd( imap_store_t *ctx, struct imap_cmd *cmd )
 {
 	assert( ctx );
@@ -351,7 +379,7 @@ submit_imap_cmd( imap_store_t *ctx, struct imap_cmd *cmd )
 	assert( cmd );
 	assert( cmd->param.done );
 
-	if ((ctx->pending && !cmd->param.high_prio) || !cmd_submittable( ctx, cmd )) {
+	if ((ctx->pending && !cmd->param.high_prio) || !cmd_sendable( ctx, cmd )) {
 		if (ctx->pending && cmd->param.high_prio) {
 			cmd->next = ctx->pending;
 			ctx->pending = cmd;
@@ -360,10 +388,9 @@ submit_imap_cmd( imap_store_t *ctx, struct imap_cmd *cmd )
 			*ctx->pending_append = cmd;
 			ctx->pending_append = &cmd->next;
 		}
-		return 0;
+	} else {
+		send_imap_cmd( ctx, cmd );
 	}
-
-	return send_imap_cmd( ctx, cmd );
 }
 
 /* Minimal printf() replacement that supports an %\s format sequence to print backslash-escaped
@@ -448,7 +475,7 @@ imap_vprintf( const char *fmt, va_list ap )
 	}
 }
 
-static int
+static void
 imap_exec( imap_store_t *ctx, struct imap_cmd *cmdp,
            void (*done)( imap_store_t *ctx, struct imap_cmd *cmd, int response ),
            const char *fmt, ... )
@@ -461,7 +488,7 @@ imap_exec( imap_store_t *ctx, struct imap_cmd *cmdp,
 	va_start( ap, fmt );
 	cmdp->cmd = imap_vprintf( fmt, ap );
 	va_end( ap );
-	return submit_imap_cmd( ctx, cmdp );
+	submit_imap_cmd( ctx, cmdp );
 }
 
 static void
@@ -574,7 +601,7 @@ next_arg( char **ps )
 	s = *ps;
 	if (!s)
 		return 0;
-	while (isspace( (unsigned char)*s ))
+	while (isspace( (uchar)*s ))
 		s++;
 	if (!*s) {
 		*ps = 0;
@@ -596,7 +623,7 @@ next_arg( char **ps )
 	} else {
 		ret = s;
 		while ((c = *s)) {
-			if (isspace( (unsigned char)c )) {
+			if (isspace( (uchar)c )) {
 				*s++ = 0;
 				break;
 			}
@@ -648,7 +675,7 @@ parse_imap_list( imap_store_t *ctx, char **sp, parse_list_state_t *sts )
 {
 	list_t *cur, **curp;
 	char *s = *sp, *d, *p;
-	int bytes;
+	int n, bytes;
 	char c;
 
 	assert( sts );
@@ -667,7 +694,7 @@ parse_imap_list( imap_store_t *ctx, char **sp, parse_list_state_t *sts )
 	if (!s)
 		return LIST_BAD;
 	for (;;) {
-		while (isspace( (unsigned char)*s ))
+		while (isspace( (uchar)*s ))
 			s++;
 		if (sts->level && *s == ')') {
 			s++;
@@ -698,11 +725,17 @@ parse_imap_list( imap_store_t *ctx, char **sp, parse_list_state_t *sts )
 			s[cur->len] = 0;
 
 		  getbytes:
-			bytes -= socket_read( &ctx->conn, s, bytes );
+			n = socket_read( &ctx->conn, s, bytes );
+			if (n < 0) {
+			  badeof:
+				error( "IMAP error: unexpected EOF from %s\n", ctx->conn.name );
+				goto bail;
+			}
+			bytes -= n;
 			if (bytes > 0)
 				goto postpone;
 
-			if (DFlags & XVERBOSE) {
+			if (DFlags & DEBUG_NET_ALL) {
 				printf( "%s=========\n", ctx->label );
 				fwrite( cur->val, cur->len, 1, stdout );
 				printf( "%s=========\n", ctx->label );
@@ -712,7 +745,9 @@ parse_imap_list( imap_store_t *ctx, char **sp, parse_list_state_t *sts )
 		  getline:
 			if (!(s = socket_read_line( &ctx->conn )))
 				goto postpone;
-			if (DFlags & VERBOSE) {
+			if (s == (void *)~0)
+				goto badeof;
+			if (DFlags & DEBUG_NET) {
 				printf( "%s%s\n", ctx->label, s );
 				fflush( stdout );
 			}
@@ -734,7 +769,7 @@ parse_imap_list( imap_store_t *ctx, char **sp, parse_list_state_t *sts )
 		} else {
 			/* atom */
 			p = s;
-			for (; *s && !isspace( (unsigned char)*s ); s++)
+			for (; *s && !isspace( (uchar)*s ); s++)
 				if (sts->level && *s == ')')
 					break;
 			cur->len = s - p;
@@ -859,7 +894,7 @@ parse_fetch_rsp( imap_store_t *ctx, list_t *list, char *s ATTR_UNUSED )
 	msg_data_t *msgdata;
 	struct imap_cmd *cmdp;
 	int uid = 0, mask = 0, status = 0, size = 0;
-	unsigned i;
+	uint i;
 	time_t date = 0;
 
 	if (!is_list( list )) {
@@ -932,7 +967,7 @@ parse_fetch_rsp( imap_store_t *ctx, list_t *list, char *s ATTR_UNUSED )
 					tmp = tmp->next;
 					if (!is_atom( tmp ))
 						goto bfail;
-					if (starts_with( tmp->val, tmp->len, "X-TUID: ", 8 ))
+					if (starts_with_upper( tmp->val, tmp->len, "X-TUID: ", 8 ))
 						tuid = tmp->val + 8;
 				} else {
 				  bfail:
@@ -983,13 +1018,22 @@ static void
 parse_capability( imap_store_t *ctx, char *cmd )
 {
 	char *arg;
-	unsigned i;
+	uint i;
 
+	free_string_list( ctx->auth_mechs );
+	ctx->auth_mechs = 0;
 	ctx->caps = 0x80000000;
-	while ((arg = next_arg( &cmd )))
-		for (i = 0; i < as(cap_list); i++)
-			if (!strcmp( cap_list[i], arg ))
-				ctx->caps |= 1 << i;
+	while ((arg = next_arg( &cmd ))) {
+		if (starts_with( arg, -1, "AUTH=", 5 )) {
+			add_string_list( &ctx->auth_mechs, arg + 5 );
+		} else {
+			for (i = 0; i < as(cap_list); i++)
+				if (!strcmp( cap_list[i], arg ))
+					ctx->caps |= 1 << i;
+		}
+	}
+	if (!CAP(NOLOGIN))
+		add_string_list( &ctx->auth_mechs, "LOGIN" );
 }
 
 static int
@@ -1026,7 +1070,7 @@ parse_response_code( imap_store_t *ctx, struct imap_cmd *cmd, char *s )
 		/* RFC2060 says that these messages MUST be displayed
 		 * to the user
 		 */
-		for (; isspace( (unsigned char)*p ); p++);
+		for (; isspace( (uchar)*p ); p++);
 		error( "*** IMAP ALERT *** %s\n", p );
 	} else if (cmd && !strcmp( "APPENDUID", arg )) {
 		if (!(arg = next_arg( &s )) ||
@@ -1097,14 +1141,16 @@ parse_list_rsp_p2( imap_store_t *ctx, list_t *list, char *cmd ATTR_UNUSED )
 	}
 	arg = list->val;
 	argl = list->len;
-	if (!is_inbox( ctx, arg, argl ) && (l = strlen( ctx->prefix ))) {
-		if (!starts_with( arg, argl, ctx->prefix, l ))
-			goto skip;
-		arg += l;
-		argl -= l;
-		if (is_inbox( ctx, arg, argl )) {
-			if (!arg[5])
-				warn( "IMAP warning: ignoring INBOX in %s\n", ctx->prefix );
+	if ((l = strlen( ctx->prefix ))) {
+		if (starts_with( arg, argl, ctx->prefix, l )) {
+			arg += l;
+			argl -= l;
+			if (is_inbox( ctx, arg, argl )) {
+				if (!arg[5])
+					warn( "IMAP warning: ignoring INBOX in %s\n", ctx->prefix );
+				goto skip;
+			}
+		} else if (!is_inbox( ctx, arg, argl )) {
 			goto skip;
 		}
 	}
@@ -1168,9 +1214,9 @@ imap_socket_read( void *aux )
 	imap_store_t *ctx = (imap_store_t *)aux;
 	struct imap_cmd *cmdp, **pcmdp;
 	char *cmd, *arg, *arg1, *p;
-	int resp, resp2, tag, greeted;
+	int resp, resp2, tag;
+	conn_iovec_t iov[2];
 
-	greeted = ctx->greeting;
 	for (;;) {
 		if (ctx->parse_list_sts.level) {
 			resp = parse_list_continue( ctx, 0 );
@@ -1183,7 +1229,13 @@ imap_socket_read( void *aux )
 		}
 		if (!(cmd = socket_read_line( &ctx->conn )))
 			return;
-		if (DFlags & VERBOSE) {
+		if (cmd == (void *)~0) {
+			if (!ctx->expectEOF)
+				error( "IMAP error: unexpected EOF from %s\n", ctx->conn.name );
+			/* A clean shutdown sequence ends with bad_callback as well (see imap_cleanup()). */
+			break;
+		}
+		if (DFlags & DEBUG_NET) {
 			printf( "%s%s\n", ctx->label, cmd );
 			fflush( stdout );
 		}
@@ -1200,22 +1252,43 @@ imap_socket_read( void *aux )
 				break;
 			}
 
-			if (!strcmp( "NAMESPACE", arg )) {
-				resp = parse_list( ctx, cmd, parse_namespace_rsp );
-				goto listret;
-			} else if (ctx->greeting == GreetingPending && !strcmp( "PREAUTH", arg )) {
+			if (ctx->greeting == GreetingPending && !strcmp( "PREAUTH", arg )) {
+				parse_response_code( ctx, 0, cmd );
 				ctx->greeting = GreetingPreauth;
-				parse_response_code( ctx, 0, cmd );
+			  dogreet:
+				imap_ref( ctx );
+				imap_open_store_greeted( ctx );
+				if (imap_deref( ctx ))
+					return;
 			} else if (!strcmp( "OK", arg )) {
-				ctx->greeting = GreetingOk;
 				parse_response_code( ctx, 0, cmd );
-			} else if (!strcmp( "BAD", arg ) || !strcmp( "NO", arg ) || !strcmp( "BYE", arg )) {
-				ctx->greeting = GreetingBad;
-				parse_response_code( ctx, 0, cmd );
+				if (ctx->greeting == GreetingPending) {
+					ctx->greeting = GreetingOk;
+					goto dogreet;
+				}
+			} else if (!strcmp( "BYE", arg )) {
+				if (!ctx->expectBYE) {
+					ctx->greeting = GreetingBad;
+					error( "IMAP error: unexpected BYE response: %s\n", cmd );
+					/* We just wait for the server to close the connection now. */
+					ctx->expectEOF = 1;
+				} else {
+					/* We still need to wait for the LOGOUT's tagged OK. */
+				}
+			} else if (ctx->greeting == GreetingPending) {
+				error( "IMAP error: bogus greeting response %s\n", arg );
+				break;
+			} else if (!strcmp( "NO", arg )) {
+				warn( "Warning from IMAP server: %s\n", cmd );
+			} else if (!strcmp( "BAD", arg )) {
+				error( "Error from IMAP server: %s\n", cmd );
 			} else if (!strcmp( "CAPABILITY", arg )) {
 				parse_capability( ctx, cmd );
 			} else if (!strcmp( "LIST", arg )) {
 				resp = parse_list( ctx, cmd, parse_list_rsp );
+				goto listret;
+			} else if (!strcmp( "NAMESPACE", arg )) {
+				resp = parse_list( ctx, cmd, parse_namespace_rsp );
 				goto listret;
 			} else if ((arg1 = next_arg( &cmd ))) {
 				if (!strcmp( "EXISTS", arg1 ))
@@ -1230,27 +1303,27 @@ imap_socket_read( void *aux )
 				error( "IMAP error: unrecognized untagged response '%s'\n", arg );
 				break; /* this may mean anything, so prefer not to spam the log */
 			}
-			if (greeted == GreetingPending) {
-				imap_ref( ctx );
-				imap_open_store_greeted( ctx );
-				if (imap_deref( ctx ))
-					return;
-			}
 			continue;
 		} else if (!ctx->in_progress) {
 			error( "IMAP error: unexpected reply: %s %s\n", arg, cmd ? cmd : "" );
 			break; /* this may mean anything, so prefer not to spam the log */
 		} else if (*arg == '+') {
-			/* This can happen only with the last command underway, as
-			   it enforces a round-trip. */
-			cmdp = ctx->in_progress;
+			/* There can be any number of commands in flight, but only the last
+			 * one can require a continuation, as it enforces a round-trip. */
+			cmdp = (struct imap_cmd *)((char *)ctx->in_progress_append -
+			                           offsetof(struct imap_cmd, next));
 			if (cmdp->param.data) {
 				if (cmdp->param.to_trash)
 					ctx->trashnc = TrashKnown; /* Can't get NO [TRYCREATE] any more. */
-				p = cmdp->param.data;
+				iov[0].buf = cmdp->param.data;
+				iov[0].len = cmdp->param.data_len;
+				iov[0].takeOwn = GiveOwn;
 				cmdp->param.data = 0;
-				if (socket_write( &ctx->conn, p, cmdp->param.data_len, GiveOwn ) < 0)
-					return;
+				ctx->buffer_mem -= cmdp->param.data_len;
+				iov[1].buf = "\r\n";
+				iov[1].len = 2;
+				iov[1].takeOwn = KeepOwn;
+				socket_write( &ctx->conn, iov, 2 );
 			} else if (cmdp->param.cont) {
 				if (cmdp->param.cont( ctx, cmdp, cmd ))
 					return;
@@ -1258,8 +1331,6 @@ imap_socket_read( void *aux )
 				error( "IMAP error: unexpected command continuation request\n" );
 				break;
 			}
-			if (socket_write( &ctx->conn, "\r\n", 2, KeepOwn ) < 0)
-				return;
 		} else {
 			tag = atoi( arg );
 			for (pcmdp = &ctx->in_progress; (cmdp = *pcmdp); pcmdp = &cmdp->next)
@@ -1282,27 +1353,30 @@ imap_socket_read( void *aux )
 				resp = RESP_OK;
 			} else {
 				if (!strcmp( "NO", arg )) {
-					if (cmdp->param.create &&
-					    (cmdp->param.trycreate ||
-					     (cmd && starts_with( cmd, -1, "[TRYCREATE]", 11 ))))
-					{ /* SELECT, APPEND or UID COPY */
+					if (cmdp->param.create && cmd && starts_with( cmd, -1, "[TRYCREATE]", 11 )) { /* APPEND or UID COPY */
 						struct imap_cmd_trycreate *cmd2 =
 							(struct imap_cmd_trycreate *)new_imap_cmd( sizeof(*cmd2) );
 						cmd2->orig_cmd = cmdp;
 						cmd2->gen.param.high_prio = 1;
 						p = strchr( cmdp->cmd, '"' );
-						if (imap_exec( ctx, &cmd2->gen, get_cmd_result_p2,
-						               "CREATE %.*s", imap_strchr( p + 1, '"' ) - p + 1, p ) < 0)
-							return;
+						imap_exec( ctx, &cmd2->gen, get_cmd_result_p2,
+						           "CREATE %.*s", imap_strchr( p + 1, '"' ) - p + 1, p );
 						continue;
 					}
 					resp = RESP_NO;
+					if (cmdp->param.failok)
+						goto doresp;
 				} else /*if (!strcmp( "BAD", arg ))*/
 					resp = RESP_CANCEL;
 				error( "IMAP command '%s' returned an error: %s %s\n",
-				       !starts_with( cmdp->cmd, -1, "LOGIN", 5 ) ? cmdp->cmd : "LOGIN <user> <pass>",
+				       starts_with( cmdp->cmd, -1, "LOGIN", 5 ) ?
+				           "LOGIN <user> <pass>" :
+				           starts_with( cmdp->cmd, -1, "AUTHENTICATE PLAIN", 18 ) ?
+				               "AUTHENTICATE PLAIN <authdata>" :
+				                cmdp->cmd,
 				       arg, cmd ? cmd : "" );
 			}
+		  doresp:
 			if ((resp2 = parse_response_code( ctx, cmdp, cmd )) > resp)
 				resp = resp2;
 			imap_ref( ctx );
@@ -1317,8 +1391,7 @@ imap_socket_read( void *aux )
 				return;
 			}
 		}
-		if (flush_imap_cmds( ctx ) < 0)
-			return;
+		flush_imap_cmds( ctx );
 	}
 	imap_invoke_bad_callback( ctx );
 }
@@ -1348,14 +1421,18 @@ imap_cancel_store( store_t *gctx )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
 
+#ifdef HAVE_LIBSASL
+	sasl_dispose( &ctx->sasl );
+#endif
 	socket_close( &ctx->conn );
-	cancel_submitted_imap_cmds( ctx );
+	cancel_sent_imap_cmds( ctx );
 	cancel_pending_imap_cmds( ctx );
 	free_generic_messages( ctx->gen.msgs );
 	free_string_list( ctx->gen.boxes );
 	free_list( ctx->ns_personal );
 	free_list( ctx->ns_other );
 	free_list( ctx->ns_shared );
+	free_string_list( ctx->auth_mechs );
 	free( ctx->delimiter );
 	imap_deref( ctx );
 }
@@ -1415,6 +1492,7 @@ imap_cleanup( void )
 	for (ctx = unowned; ctx; ctx = nctx) {
 		nctx = ctx->next;
 		set_bad_callback( ctx, (void (*)(void *))imap_cancel_store, ctx );
+		((imap_store_t *)ctx)->expectBYE = 1;
 		imap_exec( (imap_store_t *)ctx, 0, imap_cleanup_p2, "LOGOUT" );
 	}
 }
@@ -1423,33 +1501,13 @@ static void
 imap_cleanup_p2( imap_store_t *ctx,
                  struct imap_cmd *cmd ATTR_UNUSED, int response )
 {
-	if (response != RESP_CANCEL)
+	if (response == RESP_NO)
 		imap_cancel_store( &ctx->gen );
+	else if (response == RESP_OK)
+		ctx->expectEOF = 1;
 }
 
 /******************* imap_open_store *******************/
-
-#ifdef HAVE_LIBSSL
-static int
-do_cram_auth( imap_store_t *ctx, struct imap_cmd *cmdp, const char *prompt )
-{
-	imap_server_conf_t *srvc = ((imap_store_conf_t *)ctx->gen.conf)->server;
-	char *resp;
-	int l;
-
-	cmdp->param.cont = 0;
-
-	cram( prompt, srvc->user, srvc->pass, &resp, &l );
-
-	if (DFlags & VERBOSE) {
-		printf( "%s>+> %s\n", ctx->label, resp );
-		fflush( stdout );
-	}
-	if (socket_write( &ctx->conn, resp, l, GiveOwn ) < 0)
-		return -1;
-	return socket_write( &ctx->conn, "\r\n", 2, KeepOwn );
-}
-#endif
 
 static void imap_open_store_connected( int, void * );
 #ifdef HAVE_LIBSSL
@@ -1464,6 +1522,10 @@ static void imap_open_store_authenticate_p3( imap_store_t *, struct imap_cmd *, 
 #endif
 static void imap_open_store_authenticate2( imap_store_t * );
 static void imap_open_store_authenticate2_p2( imap_store_t *, struct imap_cmd *, int );
+static void imap_open_store_compress( imap_store_t * );
+#ifdef HAVE_LIBZ
+static void imap_open_store_compress_p2( imap_store_t *, struct imap_cmd *, int );
+#endif
 static void imap_open_store_namespace( imap_store_t * );
 static void imap_open_store_namespace_p2( imap_store_t *, struct imap_cmd *, int );
 static void imap_open_store_namespace2( imap_store_t * );
@@ -1471,7 +1533,13 @@ static void imap_open_store_finalize( imap_store_t * );
 #ifdef HAVE_LIBSSL
 static void imap_open_store_ssl_bail( imap_store_t * );
 #endif
-static void imap_open_store_bail( imap_store_t * );
+static void imap_open_store_bail( imap_store_t *, int );
+
+static void
+imap_open_store_bad( void *aux )
+{
+	imap_open_store_bail( (imap_store_t *)aux, FAIL_TEMP );
+}
 
 static void
 imap_open_store( store_conf_t *conf, const char *label,
@@ -1503,7 +1571,7 @@ imap_open_store( store_conf_t *conf, const char *label,
 			ctx->delimiter = 0;
 			ctx->callbacks.imap_open = cb;
 			ctx->callback_aux = aux;
-			set_bad_callback( &ctx->gen, (void (*)(void *))imap_open_store_bail, ctx );
+			set_bad_callback( &ctx->gen, imap_open_store_bad, ctx );
 			imap_open_store_namespace( ctx );
 			return;
 		}
@@ -1514,13 +1582,13 @@ imap_open_store( store_conf_t *conf, const char *label,
 	ctx->ref_count = 1;
 	ctx->callbacks.imap_open = cb;
 	ctx->callback_aux = aux;
-	set_bad_callback( &ctx->gen, (void (*)(void *))imap_open_store_bail, ctx );
+	set_bad_callback( &ctx->gen, imap_open_store_bad, ctx );
 	ctx->in_progress_append = &ctx->in_progress;
 	ctx->pending_append = &ctx->pending;
 
 	socket_init( &ctx->conn, &srvc->sconf,
 	             (void (*)( void * ))imap_invoke_bad_callback,
-	             imap_socket_read, (int (*)(void *))flush_imap_cmds, ctx );
+	             imap_socket_read, (void (*)(void *))flush_imap_cmds, ctx );
 	socket_connect( &ctx->conn, imap_open_store_connected );
 }
 
@@ -1534,9 +1602,9 @@ imap_open_store_connected( int ok, void *aux )
 #endif
 
 	if (!ok)
-		imap_open_store_bail( ctx );
+		imap_open_store_bail( ctx, FAIL_WAIT );
 #ifdef HAVE_LIBSSL
-	else if (srvc->sconf.use_imaps)
+	else if (srvc->ssl_type == SSL_IMAPS)
 		socket_start_tls( &ctx->conn, imap_open_store_tlsstarted1 );
 #endif
 }
@@ -1555,12 +1623,6 @@ imap_open_store_tlsstarted1( int ok, void *aux )
 static void
 imap_open_store_greeted( imap_store_t *ctx )
 {
-	if (ctx->greeting == GreetingBad) {
-		error( "IMAP error: unknown greeting response\n" );
-		imap_open_store_bail( ctx );
-		return;
-	}
-
 	if (!ctx->caps)
 		imap_exec( ctx, 0, imap_open_store_p2, "CAPABILITY" );
 	else
@@ -1571,7 +1633,7 @@ static void
 imap_open_store_p2( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int response )
 {
 	if (response == RESP_NO)
-		imap_open_store_bail( ctx );
+		imap_open_store_bail( ctx, FAIL_FINAL );
 	else if (response == RESP_OK)
 		imap_open_store_authenticate( ctx );
 }
@@ -1586,32 +1648,27 @@ imap_open_store_authenticate( imap_store_t *ctx )
 
 	if (ctx->greeting != GreetingPreauth) {
 #ifdef HAVE_LIBSSL
-		if (!srvc->sconf.use_imaps && srvc->use_ssl) {
-			/* always try to select SSL support if available */
+		if (srvc->ssl_type == SSL_STARTTLS) {
 			if (CAP(STARTTLS)) {
 				imap_exec( ctx, 0, imap_open_store_authenticate_p2, "STARTTLS" );
 				return;
 			} else {
-				if (srvc->require_ssl) {
-					error( "IMAP error: SSL support not available\n" );
-					imap_open_store_bail( ctx );
-					return;
-				} else {
-					warn( "IMAP warning: SSL support not available\n" );
-				}
+				error( "IMAP error: SSL support not available\n" );
+				imap_open_store_bail( ctx, FAIL_FINAL );
+				return;
 			}
 		}
 #endif
 		imap_open_store_authenticate2( ctx );
 	} else {
 #ifdef HAVE_LIBSSL
-		if (!srvc->sconf.use_imaps && srvc->require_ssl) {
+		if (srvc->ssl_type == SSL_STARTTLS) {
 			error( "IMAP error: SSL support not available\n" );
-			imap_open_store_bail( ctx );
+			imap_open_store_bail( ctx, FAIL_FINAL );
 			return;
 		}
 #endif
-		imap_open_store_namespace( ctx );
+		imap_open_store_compress( ctx );
 	}
 }
 
@@ -1620,7 +1677,7 @@ static void
 imap_open_store_authenticate_p2( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int response )
 {
 	if (response == RESP_NO)
-		imap_open_store_bail( ctx );
+		imap_open_store_bail( ctx, FAIL_FINAL );
 	else if (response == RESP_OK)
 		socket_start_tls( &ctx->conn, imap_open_store_tlsstarted2 );
 }
@@ -1640,33 +1697,40 @@ static void
 imap_open_store_authenticate_p3( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int response )
 {
 	if (response == RESP_NO)
-		imap_open_store_bail( ctx );
+		imap_open_store_bail( ctx, FAIL_FINAL );
 	else if (response == RESP_OK)
 		imap_open_store_authenticate2( ctx );
 }
 #endif
 
-static void
-imap_open_store_authenticate2( imap_store_t *ctx )
+static const char *
+ensure_user( imap_server_conf_t *srvc )
 {
-	imap_store_conf_t *cfg = (imap_store_conf_t *)ctx->gen.conf;
-	imap_server_conf_t *srvc = cfg->server;
-	char *arg;
-
-	info ("Logging in...\n");
 	if (!srvc->user) {
 		error( "Skipping account %s, no user\n", srvc->name );
-		goto bail;
+		return 0;
 	}
-	if (srvc->pass_cmd) {
+	return srvc->user;
+}
+
+static const char *
+ensure_password( imap_server_conf_t *srvc )
+{
+	char *cmd = srvc->pass_cmd;
+
+	if (cmd) {
 		FILE *fp;
 		int ret;
 		char buffer[80];
 
-		if (!(fp = popen( srvc->pass_cmd, "r" ))) {
+		if (*cmd == '+') {
+			flushn();
+			cmd++;
+		}
+		if (!(fp = popen( cmd, "r" ))) {
 		  pipeerr:
 			sys_error( "Skipping account %s, password command failed", srvc->name );
-			goto bail;
+			return 0;
 		}
 		if (!fgets( buffer, sizeof(buffer), fp ))
 			buffer[0] = 0;
@@ -1677,71 +1741,338 @@ imap_open_store_authenticate2( imap_store_t *ctx )
 				error( "Skipping account %s, password command crashed\n", srvc->name );
 			else
 				error( "Skipping account %s, password command exited with status %d\n", srvc->name, WEXITSTATUS( ret ) );
-			goto bail;
+			return 0;
 		}
 		if (!buffer[0]) {
 			error( "Skipping account %s, password command produced no output\n", srvc->name );
-			goto bail;
+			return 0;
 		}
 		buffer[strcspn( buffer, "\n" )] = 0; /* Strip trailing newline */
 		free( srvc->pass ); /* From previous runs */
 		srvc->pass = nfstrdup( buffer );
 	} else if (!srvc->pass) {
-		char prompt[80];
+		char *pass, prompt[80];
+
+		flushn();
 		sprintf( prompt, "Password (%s): ", srvc->name );
-		arg = getpass( prompt );
-		if (!arg) {
+		pass = getpass( prompt );
+		if (!pass) {
 			perror( "getpass" );
 			exit( 1 );
 		}
-		if (!*arg) {
+		if (!*pass) {
 			error( "Skipping account %s, no password\n", srvc->name );
-			goto bail;
+			return 0;
 		}
-		/*
-		 * getpass() returns a pointer to a static buffer.  make a copy
-		 * for long term storage.
-		 */
-		srvc->pass = nfstrdup( arg );
+		/* getpass() returns a pointer to a static buffer. Make a copy for long term storage. */
+		srvc->pass = nfstrdup( pass );
 	}
-#ifdef HAVE_LIBSSL
-	if (CAP(CRAM)) {
-		struct imap_cmd *cmd = new_imap_cmd( sizeof(*cmd) );
+	return srvc->pass;
+}
 
-		info( "Authenticating with CRAM-MD5\n" );
-		cmd->param.cont = do_cram_auth;
-		imap_exec( ctx, cmd, imap_open_store_authenticate2_p2, "AUTHENTICATE CRAM-MD5" );
-		return;
+#ifdef HAVE_LIBSASL
+
+static sasl_callback_t sasl_callbacks[] = {
+	{ SASL_CB_USER,     NULL, NULL },
+	{ SASL_CB_AUTHNAME, NULL, NULL },
+	{ SASL_CB_PASS,     NULL, NULL },
+	{ SASL_CB_LIST_END, NULL, NULL }
+};
+
+static int
+process_sasl_interact( sasl_interact_t *interact, imap_server_conf_t *srvc )
+{
+	const char *val;
+
+	for (;; ++interact) {
+		switch (interact->id) {
+		case SASL_CB_LIST_END:
+			return 0;
+		case SASL_CB_USER:
+		case SASL_CB_AUTHNAME:
+			val = ensure_user( srvc );
+			break;
+		case SASL_CB_PASS:
+			val = ensure_password( srvc );
+			break;
+		default:
+			error( "Error: Unknown SASL interaction ID\n" );
+			return -1;
+		}
+		if (!val)
+			return -1;
+		interact->result = val;
+		interact->len = strlen( val );
 	}
-	if (srvc->require_cram) {
-		error( "IMAP error: CRAM-MD5 authentication is not supported by server\n" );
+}
+
+static int
+process_sasl_step( imap_store_t *ctx, int rc, const char *in, uint in_len,
+                   sasl_interact_t *interact, const char **out, uint *out_len )
+{
+	imap_server_conf_t *srvc = ((imap_store_conf_t *)ctx->gen.conf)->server;
+
+	while (rc == SASL_INTERACT) {
+		if (process_sasl_interact( interact, srvc ) < 0)
+			return -1;
+		rc = sasl_client_step( ctx->sasl, in, in_len, &interact, out, out_len );
+	}
+	if (rc == SASL_CONTINUE) {
+		ctx->sasl_cont = 1;
+	} else if (rc == SASL_OK) {
+		ctx->sasl_cont = 0;
+	} else {
+		error( "Error: %s\n", sasl_errdetail( ctx->sasl ) );
+		return -1;
+	}
+	return 0;
+}
+
+static int
+decode_sasl_data( const char *prompt, char **in, uint *in_len )
+{
+	if (prompt) {
+		int rc;
+		uint prompt_len = strlen( prompt );
+		/* We're decoding, the output will be shorter than prompt_len. */
+		*in = nfmalloc( prompt_len );
+		rc = sasl_decode64( prompt, prompt_len, *in, prompt_len, in_len );
+		if (rc != SASL_OK) {
+			free( *in );
+			error( "Error: SASL(%d): %s\n", rc, sasl_errstring( rc, NULL, NULL ) );
+			return -1;
+		}
+	} else {
+		*in = NULL;
+		*in_len = 0;
+	}
+	return 0;
+}
+
+static int
+encode_sasl_data( const char *out, uint out_len, char **enc, uint *enc_len )
+{
+	int rc;
+	uint enc_len_max = ((out_len + 2) / 3) * 4 + 1;
+	*enc = nfmalloc( enc_len_max );
+	rc = sasl_encode64( out, out_len, *enc, enc_len_max, enc_len );
+	if (rc != SASL_OK) {
+		free( *enc );
+		error( "Error: SASL(%d): %s\n", rc, sasl_errstring( rc, NULL, NULL ) );
+		return -1;
+	}
+	return 0;
+}
+
+static int
+do_sasl_auth( imap_store_t *ctx, struct imap_cmd *cmdp ATTR_UNUSED, const char *prompt )
+{
+	int rc, ret, iovcnt = 0;
+	uint in_len, out_len, enc_len;
+	const char *out;
+	char *in, *enc;
+	sasl_interact_t *interact = NULL;
+	conn_iovec_t iov[2];
+
+	if (!ctx->sasl_cont) {
+		error( "Error: IMAP wants more steps despite successful SASL authentication.\n" );
 		goto bail;
 	}
-#endif
-	if (CAP(NOLOGIN)) {
-		error( "Skipping account %s, server forbids LOGIN\n", srvc->name );
+	if (decode_sasl_data( prompt, &in, &in_len ) < 0)
 		goto bail;
+	rc = sasl_client_step( ctx->sasl, in, in_len, &interact, &out, &out_len );
+	ret = process_sasl_step( ctx, rc, in, in_len, interact, &out, &out_len );
+	free( in );
+	if (ret < 0)
+		goto bail;
+
+	if (out) {
+		if (encode_sasl_data( out, out_len, &enc, &enc_len ) < 0)
+			goto bail;
+
+		iov[0].buf = enc;
+		iov[0].len = enc_len;
+		iov[0].takeOwn = GiveOwn;
+		iovcnt = 1;
+
+		if (DFlags & DEBUG_NET) {
+			printf( "%s>+> %s\n", ctx->label, enc );
+			fflush( stdout );
+		}
+	} else {
+		if (DFlags & DEBUG_NET) {
+			printf( "%s>+>\n", ctx->label );
+			fflush( stdout );
+		}
 	}
-#ifdef HAVE_LIBSSL
-	if (!ctx->conn.ssl)
-#endif
-		warn( "*** IMAP Warning *** Password is being sent in the clear\n" );
-	imap_exec( ctx, 0, imap_open_store_authenticate2_p2,
-	           "LOGIN \"%\\s\" \"%\\s\"", srvc->user, srvc->pass );
-	return;
+	iov[iovcnt].buf = "\r\n";
+	iov[iovcnt].len = 2;
+	iov[iovcnt].takeOwn = KeepOwn;
+	iovcnt++;
+	socket_write( &ctx->conn, iov, iovcnt );
+	return 0;
 
   bail:
-	imap_open_store_bail( ctx );
+	imap_open_store_bail( ctx, FAIL_FINAL );
+	return -1;
+}
+
+static void
+done_sasl_auth( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int response )
+{
+	if (response == RESP_OK && ctx->sasl_cont) {
+		sasl_interact_t *interact = NULL;
+		const char *out;
+		uint out_len;
+		int rc = sasl_client_step( ctx->sasl, NULL, 0, &interact, &out, &out_len );
+		if (process_sasl_step( ctx, rc, NULL, 0, interact, &out, &out_len ) < 0)
+			warn( "Warning: SASL reported failure despite successful IMAP authentication. Ignoring...\n" );
+		else if (out)
+			warn( "Warning: SASL wants more steps despite successful IMAP authentication. Ignoring...\n" );
+	}
+
+	imap_open_store_authenticate2_p2( ctx, NULL, response );
+}
+
+#endif
+
+static void
+imap_open_store_authenticate2( imap_store_t *ctx )
+{
+	imap_store_conf_t *cfg = (imap_store_conf_t *)ctx->gen.conf;
+	imap_server_conf_t *srvc = cfg->server;
+	string_list_t *mech, *cmech;
+	int auth_login = 0;
+#ifdef HAVE_LIBSASL
+	char saslmechs[1024], *saslend = saslmechs;
+#endif
+
+	info( "Logging in...\n" );
+	for (mech = srvc->auth_mechs; mech; mech = mech->next) {
+		int any = !strcmp( mech->string, "*" );
+		for (cmech = ctx->auth_mechs; cmech; cmech = cmech->next) {
+			if (any || !strcasecmp( mech->string, cmech->string )) {
+				if (!strcasecmp( cmech->string, "LOGIN" )) {
+#ifdef HAVE_LIBSSL
+					if (ctx->conn.ssl || !any)
+#endif
+						auth_login = 1;
+				} else {
+#ifdef HAVE_LIBSASL
+					int len = strlen( cmech->string );
+					if (saslend + len + 2 > saslmechs + sizeof(saslmechs))
+						oob();
+					*saslend++ = ' ';
+					memcpy( saslend, cmech->string, len + 1 );
+					saslend += len;
+#else
+					error( "IMAP error: authentication mechanism %s is not supported\n", cmech->string );
+					goto bail;
+#endif
+				}
+			}
+		}
+	}
+#ifdef HAVE_LIBSASL
+	if (saslend != saslmechs) {
+		int rc;
+		uint out_len = 0;
+		char *enc = NULL;
+		const char *gotmech = NULL, *out = NULL;
+		sasl_interact_t *interact = NULL;
+		struct imap_cmd *cmd;
+		static int sasl_inited;
+
+		if (!sasl_inited) {
+			rc = sasl_client_init( sasl_callbacks );
+			if (rc != SASL_OK) {
+			  saslbail:
+				error( "Error: SASL(%d): %s\n", rc, sasl_errstring( rc, NULL, NULL ) );
+				goto bail;
+			}
+			sasl_inited = 1;
+		}
+
+		rc = sasl_client_new( "imap", srvc->sconf.host, NULL, NULL, NULL, 0, &ctx->sasl );
+		if (rc != SASL_OK) {
+			if (!ctx->sasl)
+				goto saslbail;
+			error( "Error: %s\n", sasl_errdetail( ctx->sasl ) );
+			goto bail;
+		}
+
+		rc = sasl_client_start( ctx->sasl, saslmechs + 1, &interact, CAP(SASLIR) ? &out : NULL, &out_len, &gotmech );
+		if (gotmech)
+			info( "Authenticating with SASL mechanism %s...\n", gotmech );
+		/* Technically, we are supposed to loop over sasl_client_start(),
+		 * but it just calls sasl_client_step() anyway. */
+		if (process_sasl_step( ctx, rc, NULL, 0, interact, CAP(SASLIR) ? &out : NULL, &out_len ) < 0)
+			goto bail;
+		if (out) {
+			if (!out_len)
+				enc = nfstrdup( "=" ); /* A zero-length initial response is encoded as padding. */
+			else if (encode_sasl_data( out, out_len, &enc, NULL ) < 0)
+				goto bail;
+		}
+
+		cmd = new_imap_cmd( sizeof(*cmd) );
+		cmd->param.cont = do_sasl_auth;
+		imap_exec( ctx, cmd, done_sasl_auth, enc ? "AUTHENTICATE %s %s" : "AUTHENTICATE %s", gotmech, enc );
+		free( enc );
+		return;
+	}
+#endif
+	if (auth_login) {
+		if (!ensure_user( srvc ) || !ensure_password( srvc ))
+			goto bail;
+#ifdef HAVE_LIBSSL
+		if (!ctx->conn.ssl)
+#endif
+			warn( "*** IMAP Warning *** Password is being sent in the clear\n" );
+		imap_exec( ctx, 0, imap_open_store_authenticate2_p2,
+		           "LOGIN \"%\\s\" \"%\\s\"", srvc->user, srvc->pass );
+		return;
+	}
+	error( "IMAP error: server supports no acceptable authentication mechanism\n" );
+
+  bail:
+	imap_open_store_bail( ctx, FAIL_FINAL );
 }
 
 static void
 imap_open_store_authenticate2_p2( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int response )
 {
 	if (response == RESP_NO)
-		imap_open_store_bail( ctx );
+		imap_open_store_bail( ctx, FAIL_FINAL );
 	else if (response == RESP_OK)
-		imap_open_store_namespace( ctx );
+		imap_open_store_compress( ctx );
 }
+
+static void
+imap_open_store_compress( imap_store_t *ctx )
+{
+#ifdef HAVE_LIBZ
+	if (CAP(COMPRESS_DEFLATE)) {
+		imap_exec( ctx, 0, imap_open_store_compress_p2, "COMPRESS DEFLATE" );
+		return;
+	}
+#endif
+	imap_open_store_namespace( ctx );
+}
+
+#ifdef HAVE_LIBZ
+static void
+imap_open_store_compress_p2( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int response )
+{
+	if (response == RESP_NO) {
+		/* We already reported an error, but it's not fatal to us. */
+		imap_open_store_namespace( ctx );
+	} else if (response == RESP_OK) {
+		socket_start_deflate( &ctx->conn );
+		imap_open_store_namespace( ctx );
+	}
+}
+#endif
 
 static void
 imap_open_store_namespace( imap_store_t *ctx )
@@ -1765,7 +2096,7 @@ static void
 imap_open_store_namespace_p2( imap_store_t *ctx, struct imap_cmd *cmd ATTR_UNUSED, int response )
 {
 	if (response == RESP_NO) {
-		imap_open_store_bail( ctx );
+		imap_open_store_bail( ctx, FAIL_FINAL );
 	} else if (response == RESP_OK) {
 		ctx->got_namespace = 1;
 		imap_open_store_namespace2( ctx );
@@ -1790,7 +2121,7 @@ imap_open_store_namespace2( imap_store_t *ctx )
 			ctx->delimiter = nfstrdup( nsp_1st_dl->val );
 		imap_open_store_finalize( ctx );
 	} else {
-		imap_open_store_bail( ctx );
+		imap_open_store_bail( ctx, FAIL_FINAL );
 	}
 }
 
@@ -1810,42 +2141,43 @@ imap_open_store_ssl_bail( imap_store_t *ctx )
 {
 	/* This avoids that we try to send LOGOUT to an unusable socket. */
 	socket_close( &ctx->conn );
-	imap_open_store_bail( ctx );
+	imap_open_store_bail( ctx, FAIL_FINAL );
 }
 #endif
 
 static void
-imap_open_store_bail( imap_store_t *ctx )
+imap_open_store_bail( imap_store_t *ctx, int failed )
 {
 	void (*cb)( store_t *srv, void *aux ) = ctx->callbacks.imap_open;
 	void *aux = ctx->callback_aux;
+	((imap_store_conf_t *)ctx->gen.conf)->server->failed = failed;
 	imap_cancel_store( &ctx->gen );
 	cb( 0, aux );
 }
 
-/******************* imap_prepare_opts *******************/
+/******************* imap_open_box *******************/
 
-static void
-imap_prepare_opts( store_t *gctx, int opts )
-{
-	gctx->opts = opts;
-}
-
-/******************* imap_select *******************/
-
-static void
-imap_select( store_t *gctx, const char *name, int create,
-             void (*cb)( int sts, void *aux ), void *aux )
+static int
+imap_select_box( store_t *gctx, const char *name )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
-	struct imap_cmd_simple *cmd;
-	char *buf;
 
 	free_generic_messages( gctx->msgs );
 	gctx->msgs = 0;
 	ctx->msgapp = &gctx->msgs;
 
 	ctx->name = name;
+	return DRV_OK;
+}
+
+static void
+imap_open_box( store_t *gctx,
+               void (*cb)( int sts, void *aux ), void *aux )
+{
+	imap_store_t *ctx = (imap_store_t *)gctx;
+	struct imap_cmd_simple *cmd;
+	char *buf;
+
 	if (prepare_box( &buf, ctx ) < 0) {
 		cb( DRV_BOX_BAD, aux );
 		return;
@@ -1854,20 +2186,95 @@ imap_select( store_t *gctx, const char *name, int create,
 	ctx->gen.uidnext = 0;
 
 	INIT_IMAP_CMD(imap_cmd_simple, cmd, cb, aux)
-	cmd->gen.param.create = create;
-	cmd->gen.param.trycreate = 1;
+	cmd->gen.param.failok = 1;
 	imap_exec( ctx, &cmd->gen, imap_done_simple_box,
 	           "SELECT \"%\\s\"", buf );
 	free( buf );
 }
 
-/******************* imap_load *******************/
-
-static int imap_submit_load( imap_store_t *, const char *, int, struct imap_cmd_refcounted_state * );
+/******************* imap_create_box *******************/
 
 static void
-imap_load( store_t *gctx, int minuid, int maxuid, int newuid, int *excs, int nexcs,
-           void (*cb)( int sts, void *aux ), void *aux )
+imap_create_box( store_t *gctx,
+                 void (*cb)( int sts, void *aux ), void *aux )
+{
+	imap_store_t *ctx = (imap_store_t *)gctx;
+	struct imap_cmd_simple *cmd;
+	char *buf;
+
+	if (prepare_box( &buf, ctx ) < 0) {
+		cb( DRV_BOX_BAD, aux );
+		return;
+	}
+
+	INIT_IMAP_CMD(imap_cmd_simple, cmd, cb, aux)
+	imap_exec( ctx, &cmd->gen, imap_done_simple_box,
+	           "CREATE \"%\\s\"", buf );
+	free( buf );
+}
+
+/******************* imap_delete_box *******************/
+
+static int
+imap_confirm_box_empty( store_t *gctx )
+{
+	return gctx->count ? DRV_BOX_BAD : DRV_OK;
+}
+
+static void imap_delete_box_p2( imap_store_t *, struct imap_cmd *, int );
+
+static void
+imap_delete_box( store_t *gctx,
+                 void (*cb)( int sts, void *aux ), void *aux )
+{
+	imap_store_t *ctx = (imap_store_t *)gctx;
+	struct imap_cmd_simple *cmd;
+
+	INIT_IMAP_CMD(imap_cmd_simple, cmd, cb, aux)
+	imap_exec( ctx, &cmd->gen, imap_delete_box_p2, "CLOSE" );
+}
+
+static void
+imap_delete_box_p2( imap_store_t *ctx, struct imap_cmd *gcmd, int response )
+{
+	struct imap_cmd_simple *cmdp = (struct imap_cmd_simple *)gcmd;
+	struct imap_cmd_simple *cmd;
+	char *buf;
+
+	if (response != RESP_OK) {
+		imap_done_simple_box( ctx, &cmdp->gen, response );
+		return;
+	}
+
+	if (prepare_box( &buf, ctx ) < 0) {
+		imap_done_simple_box( ctx, &cmdp->gen, RESP_NO );
+		return;
+	}
+	INIT_IMAP_CMD(imap_cmd_simple, cmd, cmdp->callback, cmdp->callback_aux)
+	imap_exec( ctx, &cmd->gen, imap_done_simple_box,
+	           "DELETE \"%\\s\"", buf );
+	free( buf );
+}
+
+static int
+imap_finish_delete_box( store_t *gctx ATTR_UNUSED )
+{
+	return DRV_OK;
+}
+
+/******************* imap_load_box *******************/
+
+static void
+imap_prepare_load_box( store_t *gctx, int opts )
+{
+	gctx->opts = opts;
+}
+
+static void imap_submit_load( imap_store_t *, const char *, int, struct imap_cmd_refcounted_state * );
+
+static void
+imap_load_box( store_t *gctx, int minuid, int maxuid, int newuid, int *excs, int nexcs,
+               void (*cb)( int sts, void *aux ), void *aux )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
 	int i, j, bl;
@@ -1890,16 +2297,14 @@ imap_load( store_t *gctx, int minuid, int maxuid, int newuid, int *excs, int nex
 				if (i != j)
 					bl += sprintf( buf + bl, ":%d", excs[i] );
 			}
-			if (imap_submit_load( ctx, buf, 0, sts ) < 0)
-				goto done;
+			imap_submit_load( ctx, buf, 0, sts );
 		}
 		if (maxuid == INT_MAX)
 			maxuid = ctx->gen.uidnext ? ctx->gen.uidnext - 1 : 1000000000;
 		if (maxuid >= minuid) {
 			if ((ctx->gen.opts & OPEN_FIND) && minuid < newuid) {
 				sprintf( buf, "%d:%d", minuid, newuid - 1 );
-				if (imap_submit_load( ctx, buf, 0, sts ) < 0)
-					goto done;
+				imap_submit_load( ctx, buf, 0, sts );
 				if (newuid > maxuid)
 					goto done;
 				sprintf( buf, "%d:%d", newuid, maxuid );
@@ -1914,14 +2319,14 @@ imap_load( store_t *gctx, int minuid, int maxuid, int newuid, int *excs, int nex
 	}
 }
 
-static int
+static void
 imap_submit_load( imap_store_t *ctx, const char *buf, int tuids, struct imap_cmd_refcounted_state *sts )
 {
-	return imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
-	                  "UID FETCH %s (UID%s%s%s)", buf,
-	                  (ctx->gen.opts & OPEN_FLAGS) ? " FLAGS" : "",
-	                  (ctx->gen.opts & OPEN_SIZE) ? " RFC822.SIZE" : "",
-	                  tuids ? " BODY.PEEK[HEADER.FIELDS (X-TUID)]" : "");
+	imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
+	           "UID FETCH %s (UID%s%s%s)", buf,
+	           (ctx->gen.opts & OPEN_FLAGS) ? " FLAGS" : "",
+	           (ctx->gen.opts & OPEN_SIZE) ? " RFC822.SIZE" : "",
+	           tuids ? " BODY.PEEK[HEADER.FIELDS (X-TUID)]" : "");
 }
 
 /******************* imap_fetch_msg *******************/
@@ -1956,7 +2361,7 @@ imap_fetch_msg_p2( imap_store_t *ctx, struct imap_cmd *gcmd, int response )
 	imap_done_simple_msg( ctx, gcmd, response );
 }
 
-/******************* imap_set_flags *******************/
+/******************* imap_set_msg_flags *******************/
 
 static void imap_set_flags_p2( imap_store_t *, struct imap_cmd *, int );
 
@@ -1964,7 +2369,7 @@ static int
 imap_make_flags( int flags, char *buf )
 {
 	const char *s;
-	unsigned i, d;
+	uint i, d;
 
 	for (i = d = 0; i < as(Flags); i++)
 		if (flags & (1 << i)) {
@@ -1978,20 +2383,20 @@ imap_make_flags( int flags, char *buf )
 	return d;
 }
 
-static int
+static void
 imap_flags_helper( imap_store_t *ctx, int uid, char what, int flags,
                    struct imap_cmd_refcounted_state *sts )
 {
 	char buf[256];
 
 	buf[imap_make_flags( flags, buf )] = 0;
-	return imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_set_flags_p2,
-	                  "UID STORE %d %cFLAGS.SILENT %s", uid, what, buf );
+	imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_set_flags_p2,
+	           "UID STORE %d %cFLAGS.SILENT %s", uid, what, buf );
 }
 
 static void
-imap_set_flags( store_t *gctx, message_t *msg, int uid, int add, int del,
-                void (*cb)( int sts, void *aux ), void *aux )
+imap_set_msg_flags( store_t *gctx, message_t *msg, int uid, int add, int del,
+                    void (*cb)( int sts, void *aux ), void *aux )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
 
@@ -2004,8 +2409,10 @@ imap_set_flags( store_t *gctx, message_t *msg, int uid, int add, int del,
 	}
 	if (add || del) {
 		struct imap_cmd_refcounted_state *sts = imap_refcounted_new_state( cb, aux );
-		if ((add && imap_flags_helper( ctx, uid, '+', add, sts ) < 0) ||
-		    (del && imap_flags_helper( ctx, uid, '-', del, sts ) < 0)) {}
+		if (add)
+			imap_flags_helper( ctx, uid, '+', add, sts );
+		if (del)
+			imap_flags_helper( ctx, uid, '-', del, sts );
 		imap_refcounted_done( sts );
 	} else {
 		cb( DRV_OK, aux );
@@ -2028,11 +2435,11 @@ imap_set_flags_p2( imap_store_t *ctx ATTR_UNUSED, struct imap_cmd *cmd, int resp
 	imap_refcounted_done( sts );
 }
 
-/******************* imap_close *******************/
+/******************* imap_close_box *******************/
 
 static void
-imap_close( store_t *gctx,
-            void (*cb)( int sts, void *aux ), void *aux )
+imap_close_box( store_t *gctx,
+                void (*cb)( int sts, void *aux ), void *aux )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
 
@@ -2056,9 +2463,8 @@ imap_close( store_t *gctx,
 			}
 			if (!bl)
 				break;
-			if (imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
-			               "UID EXPUNGE %s", buf ) < 0)
-				break;
+			imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
+			           "UID EXPUNGE %s", buf );
 		}
 		imap_refcounted_done( sts );
 	} else {
@@ -2120,6 +2526,7 @@ imap_store_msg( store_t *gctx, msg_data_t *data, int to_trash,
 	flagstr[d] = 0;
 
 	INIT_IMAP_CMD(imap_cmd_out_uid, cmd, cb, aux)
+	ctx->buffer_mem += data->len;
 	cmd->gen.param.data_len = data->len;
 	cmd->gen.param.data = data->data;
 	cmd->out_uid = -2;
@@ -2189,30 +2596,29 @@ imap_find_new_msgs_p2( imap_store_t *ctx, struct imap_cmd *gcmd, int response )
 	           "UID FETCH %d:1000000000 (UID BODY.PEEK[HEADER.FIELDS (X-TUID)])", cmdp->uid );
 }
 
-/******************* imap_list *******************/
+/******************* imap_list_store *******************/
 
 static void
-imap_list( store_t *gctx, int flags,
-           void (*cb)( int sts, void *aux ), void *aux )
+imap_list_store( store_t *gctx, int flags,
+                 void (*cb)( int sts, void *aux ), void *aux )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
 	struct imap_cmd_refcounted_state *sts = imap_refcounted_new_state( cb, aux );
 
-	if (((flags & LIST_PATH) &&
-	     imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
-	                "LIST \"\" \"%\\s*\"", ctx->prefix ) < 0) ||
-	    ((flags & LIST_INBOX) && (!(flags & LIST_PATH) || *ctx->prefix) &&
-	     imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
-	                "LIST \"\" INBOX*" ) < 0))
-		{}
+	if ((flags & LIST_PATH) && (!(flags & LIST_INBOX) || !is_inbox( ctx, ctx->prefix, -1 )))
+		imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
+		           "LIST \"\" \"%\\s*\"", ctx->prefix );
+	if ((flags & LIST_INBOX) && (!(flags & LIST_PATH) || *ctx->prefix))
+		imap_exec( ctx, imap_refcounted_new_cmd( sts ), imap_refcounted_done_box,
+		           "LIST \"\" INBOX*" );
 	imap_refcounted_done( sts );
 }
 
-/******************* imap_cancel *******************/
+/******************* imap_cancel_cmds *******************/
 
 static void
-imap_cancel( store_t *gctx,
-             void (*cb)( void *aux ), void *aux )
+imap_cancel_cmds( store_t *gctx,
+                  void (*cb)( void *aux ), void *aux )
 {
 	imap_store_t *ctx = (imap_store_t *)gctx;
 
@@ -2226,12 +2632,30 @@ imap_cancel( store_t *gctx,
 	}
 }
 
-/******************* imap_commit *******************/
+/******************* imap_commit_cmds *******************/
 
 static void
-imap_commit( store_t *gctx )
+imap_commit_cmds( store_t *gctx )
 {
 	(void)gctx;
+}
+
+/******************* imap_memory_usage *******************/
+
+static int
+imap_memory_usage( store_t *gctx )
+{
+	imap_store_t *ctx = (imap_store_t *)gctx;
+
+	return ctx->buffer_mem + ctx->conn.buffer_mem;
+}
+
+/******************* imap_fail_state *******************/
+
+static int
+imap_fail_state( store_conf_t *gconf )
+{
+	return ((imap_store_conf_t *)gconf)->server->failed;
 }
 
 /******************* imap_parse_store *******************/
@@ -2243,8 +2667,15 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 {
 	imap_store_conf_t *store;
 	imap_server_conf_t *server, *srv, sserver;
-	const char *type, *name;
+	const char *type, *name, *arg;
 	int acc_opt = 0;
+#ifdef HAVE_LIBSSL
+	/* Legacy SSL options */
+	int require_ssl = -1, use_imaps = -1;
+	int use_sslv2 = -1, use_sslv3 = -1, use_tlsv1 = -1, use_tlsv11 = -1, use_tlsv12 = -1;
+#endif
+	/* Legacy SASL option */
+	int require_cram = -1;
 
 	if (!strcasecmp( "IMAPAccount", cfg->cmd )) {
 		server = nfcalloc( sizeof(*server) );
@@ -2265,32 +2696,31 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 		return 0;
 
 #ifdef HAVE_LIBSSL
-	/* this will probably annoy people, but its the best default just in
-	 * case people forget to turn it on
-	 */
-	server->require_ssl = 1;
-	server->sconf.use_tlsv1 = 1;
+	server->ssl_type = -1;
+	server->sconf.ssl_versions = -1;
+	server->sconf.system_certs = 1;
 #endif
 	server->max_in_progress = INT_MAX;
 
 	while (getcline( cfg ) && cfg->cmd) {
 		if (!strcasecmp( "Host", cfg->cmd )) {
 			/* The imap[s]: syntax is just a backwards compat hack. */
+			arg = cfg->val;
 #ifdef HAVE_LIBSSL
-			if (starts_with( cfg->val, -1, "imaps:", 6 )) {
-				cfg->val += 6;
-				server->sconf.use_imaps = 1;
-				server->sconf.use_sslv2 = 1;
-				server->sconf.use_sslv3 = 1;
+			if (starts_with( arg, -1, "imaps:", 6 )) {
+				arg += 6;
+				server->ssl_type = SSL_IMAPS;
+				if (server->sconf.ssl_versions == -1)
+					server->sconf.ssl_versions = SSLv2 | SSLv3 | TLSv1;
 			} else
 #endif
-			{
-				if (starts_with( cfg->val, -1, "imap:", 5 ))
-					cfg->val += 5;
-			}
-			if (starts_with( cfg->val, -1, "//", 2 ))
-				cfg->val += 2;
-			server->sconf.host = nfstrdup( cfg->val );
+			if (starts_with( arg, -1, "imap:", 5 ))
+				arg += 5;
+			if (starts_with( arg, -1, "//", 2 ))
+				arg += 2;
+			if (arg != cfg->val)
+				warn( "%s:%d: Notice: URL notation is deprecated; use a plain host name and possibly 'SSLType IMAPS' instead\n", cfg->file, cfg->line );
+			server->sconf.host = nfstrdup( arg );
 		}
 		else if (!strcasecmp( "User", cfg->cmd ))
 			server->user = nfstrdup( cfg->val );
@@ -2314,23 +2744,62 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 				           cfg->file, cfg->line, server->sconf.cert_file );
 				cfg->err = 1;
 			}
+		} else if (!strcasecmp( "SystemCertificates", cfg->cmd )) {
+			server->sconf.system_certs = parse_bool( cfg );
+		} else if (!strcasecmp( "SSLType", cfg->cmd )) {
+			if (!strcasecmp( "None", cfg->val )) {
+				server->ssl_type = SSL_None;
+			} else if (!strcasecmp( "STARTTLS", cfg->val )) {
+				server->ssl_type = SSL_STARTTLS;
+			} else if (!strcasecmp( "IMAPS", cfg->val )) {
+				server->ssl_type = SSL_IMAPS;
+			} else {
+				error( "%s:%d: Invalid SSL type\n", cfg->file, cfg->line );
+				cfg->err = 1;
+			}
+		} else if (!strcasecmp( "SSLVersion", cfg->cmd ) ||
+		           !strcasecmp( "SSLVersions", cfg->cmd )) {
+			server->sconf.ssl_versions = 0;
+			arg = cfg->val;
+			do {
+				if (!strcasecmp( "SSLv2", arg )) {
+					server->sconf.ssl_versions |= SSLv2;
+				} else if (!strcasecmp( "SSLv3", arg )) {
+					server->sconf.ssl_versions |= SSLv3;
+				} else if (!strcasecmp( "TLSv1", arg )) {
+					server->sconf.ssl_versions |= TLSv1;
+				} else if (!strcasecmp( "TLSv1.1", arg )) {
+					server->sconf.ssl_versions |= TLSv1_1;
+				} else if (!strcasecmp( "TLSv1.2", arg )) {
+					server->sconf.ssl_versions |= TLSv1_2;
+				} else {
+					error( "%s:%d: Unrecognized SSL version\n", cfg->file, cfg->line );
+					cfg->err = 1;
+				}
+			} while ((arg = get_arg( cfg, ARG_OPTIONAL, 0 )));
 		} else if (!strcasecmp( "RequireSSL", cfg->cmd ))
-			server->require_ssl = parse_bool( cfg );
+			require_ssl = parse_bool( cfg );
 		else if (!strcasecmp( "UseIMAPS", cfg->cmd ))
-			server->sconf.use_imaps = parse_bool( cfg );
+			use_imaps = parse_bool( cfg );
 		else if (!strcasecmp( "UseSSLv2", cfg->cmd ))
-			server->sconf.use_sslv2 = parse_bool( cfg );
+			use_sslv2 = parse_bool( cfg );
 		else if (!strcasecmp( "UseSSLv3", cfg->cmd ))
-			server->sconf.use_sslv3 = parse_bool( cfg );
+			use_sslv3 = parse_bool( cfg );
 		else if (!strcasecmp( "UseTLSv1", cfg->cmd ))
-			server->sconf.use_tlsv1 = parse_bool( cfg );
+			use_tlsv1 = parse_bool( cfg );
 		else if (!strcasecmp( "UseTLSv1.1", cfg->cmd ))
-			server->sconf.use_tlsv11 = parse_bool( cfg );
+			use_tlsv11 = parse_bool( cfg );
 		else if (!strcasecmp( "UseTLSv1.2", cfg->cmd ))
-			server->sconf.use_tlsv12 = parse_bool( cfg );
-		else if (!strcasecmp( "RequireCRAM", cfg->cmd ))
-			server->require_cram = parse_bool( cfg );
+			use_tlsv12 = parse_bool( cfg );
 #endif
+		else if (!strcasecmp( "AuthMech", cfg->cmd ) ||
+		         !strcasecmp( "AuthMechs", cfg->cmd )) {
+			arg = cfg->val;
+			do
+				add_string_list( &server->auth_mechs, arg );
+			while ((arg = get_arg( cfg, ARG_OPTIONAL, 0 )));
+		} else if (!strcasecmp( "RequireCRAM", cfg->cmd ))
+			require_cram = parse_bool( cfg );
 		else if (!strcasecmp( "Tunnel", cfg->cmd ))
 			server->sconf.tunnel = nfstrdup( cfg->val );
 		else if (store) {
@@ -2375,15 +2844,59 @@ imap_parse_store( conffile_t *cfg, store_conf_t **storep )
 			return 1;
 		}
 #ifdef HAVE_LIBSSL
-		server->use_ssl =
-		        server->sconf.use_sslv2 | server->sconf.use_sslv3 |
-		        server->sconf.use_tlsv1 | server->sconf.use_tlsv11 | server->sconf.use_tlsv12;
-		if (server->require_ssl && !server->use_ssl) {
-			error( "%s '%s' requires SSL but no SSL versions enabled\n", type, name );
-			cfg->err = 1;
-			return 1;
+		if ((use_sslv2 & use_sslv3 & use_tlsv1 & use_tlsv11 & use_tlsv12) != -1 || use_imaps >= 0 || require_ssl >= 0) {
+			if (server->ssl_type >= 0 || server->sconf.ssl_versions >= 0) {
+				error( "%s '%s': The deprecated UseSSL*, UseTLS*, UseIMAPS, and RequireSSL options are mutually exlusive with SSLType and SSLVersions.\n", type, name );
+				cfg->err = 1;
+				return 1;
+			}
+			warn( "Notice: %s '%s': UseSSL*, UseTLS*, UseIMAPS, and RequireSSL are deprecated. Use SSLType and SSLVersions instead.\n", type, name );
+			server->sconf.ssl_versions =
+					(use_sslv2 != 1 ? 0 : SSLv2) |
+					(use_sslv3 != 1 ? 0 : SSLv3) |
+					(use_tlsv1 == 0 ? 0 : TLSv1) |
+					(use_tlsv11 != 1 ? 0 : TLSv1_1) |
+					(use_tlsv12 != 1 ? 0 : TLSv1_2);
+			if (use_imaps == 1) {
+				server->ssl_type = SSL_IMAPS;
+			} else if (require_ssl) {
+				server->ssl_type = SSL_STARTTLS;
+			} else if (!server->sconf.ssl_versions) {
+				server->ssl_type = SSL_None;
+			} else {
+				warn( "Notice: %s '%s': 'RequireSSL no' is being ignored\n", type, name );
+				server->ssl_type = SSL_STARTTLS;
+			}
+			if (server->ssl_type != SSL_None && !server->sconf.ssl_versions) {
+				error( "%s '%s' requires SSL but no SSL versions enabled\n", type, name );
+				cfg->err = 1;
+				return 1;
+			}
+		} else {
+			if (server->sconf.ssl_versions < 0)
+				server->sconf.ssl_versions = TLSv1; /* Most compatible and still reasonably secure. */
+			if (server->ssl_type < 0)
+				server->ssl_type = server->sconf.tunnel ? SSL_None : SSL_STARTTLS;
 		}
 #endif
+		if (require_cram >= 0) {
+			if (server->auth_mechs) {
+				error( "%s '%s': The deprecated RequireCRAM option is mutually exlusive with AuthMech.\n", type, name );
+				cfg->err = 1;
+				return 1;
+			}
+			warn( "Notice: %s '%s': RequireCRAM is deprecated. Use AuthMech instead.\n", type, name );
+			if (require_cram)
+				add_string_list(&server->auth_mechs, "CRAM-MD5");
+		}
+		if (!server->auth_mechs)
+			add_string_list( &server->auth_mechs, "*" );
+		if (!server->sconf.port)
+			server->sconf.port =
+#ifdef HAVE_LIBSSL
+				server->ssl_type == SSL_IMAPS ? 993 :
+#endif
+				143;
 	}
 	if (store) {
 		if (!store->server) {
@@ -2405,16 +2918,23 @@ struct driver imap_driver = {
 	imap_open_store,
 	imap_disown_store,
 	imap_cancel_store,
-	imap_list,
-	imap_prepare_opts,
-	imap_select,
-	imap_load,
+	imap_list_store,
+	imap_select_box,
+	imap_create_box,
+	imap_open_box,
+	imap_confirm_box_empty,
+	imap_delete_box,
+	imap_finish_delete_box,
+	imap_prepare_load_box,
+	imap_load_box,
 	imap_fetch_msg,
 	imap_store_msg,
 	imap_find_new_msgs,
-	imap_set_flags,
+	imap_set_msg_flags,
 	imap_trash_msg,
-	imap_close,
-	imap_cancel,
-	imap_commit,
+	imap_close_box,
+	imap_cancel_cmds,
+	imap_commit_cmds,
+	imap_memory_usage,
+	imap_fail_state,
 };

@@ -37,6 +37,9 @@ It will automatically migrate the UID mapping from previous versions of
 \fBmbsync\fR. If you were using \fBisync\fR version 0.8 or 0.9.x you might
 want to use \fBmdconvert\fR to convert the mailboxes to the more efficient
 \fBnative\fR UID storage scheme after migrating them.
+.br
+\fBisync\fR is deprecated. Please use the \fB-w\fR option to permanently
+migrate the configuration and start using \fBmbsync\fR directly.
 ..
 .SH OPTIONS
 .TP
@@ -256,7 +259,12 @@ established with the IMAP server.  (Default: \fIyes\fR)
 ..
 .TP
 \fBCertificateFile\fR \fIpath\fR
-File containing X.509 CA certificates used to verify server identities.
+File containing additional X.509 certificates used to verify server
+identities. Directly matched peer certificates are always trusted,
+regardless of validity.
+.br
+Note that the system's default certificate store is always used
+and should not be specified here.
 ..
 .TP
 \fBUseSSLv2\fR \fIyes\fR|\fIno\fR

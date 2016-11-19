@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
+#include <ctype.h>
 #include <pwd.h>
 
 static int need_nl;
@@ -53,31 +54,35 @@ printn( const char *msg, va_list va )
 }
 
 void
-debug( const char *msg, ... )
+vdebug( int cat, const char *msg, va_list va )
 {
-	va_list va;
-
-	if (DFlags & DEBUG) {
-		va_start( va, msg );
+	if (DFlags & cat) {
 		vprintf( msg, va );
-		va_end( va );
 		fflush( stdout );
 		need_nl = 0;
 	}
 }
 
 void
-debugn( const char *msg, ... )
+vdebugn( int cat, const char *msg, va_list va )
 {
-	va_list va;
-
-	if (DFlags & DEBUG) {
-		va_start( va, msg );
+	if (DFlags & cat) {
 		vprintf( msg, va );
-		va_end( va );
 		fflush( stdout );
 		need_nl = 1;
 	}
+}
+
+void
+progress( const char *msg, ... )
+{
+	va_list va;
+
+	va_start( va, msg );
+	vprintf( msg, va );
+	va_end( va );
+	fflush( stdout );
+	need_nl = 1;
 }
 
 void
@@ -85,7 +90,7 @@ info( const char *msg, ... )
 {
 	va_list va;
 
-	if (!(DFlags & QUIET)) {
+	if (DFlags & VERBOSE) {
 		va_start( va, msg );
 		printn( msg, va );
 		va_end( va );
@@ -98,11 +103,24 @@ infon( const char *msg, ... )
 {
 	va_list va;
 
-	if (!(DFlags & QUIET)) {
+	if (DFlags & VERBOSE) {
 		va_start( va, msg );
 		printn( msg, va );
 		va_end( va );
 		need_nl = 1;
+	}
+}
+
+void
+notice( const char *msg, ... )
+{
+	va_list va;
+
+	if (!(DFlags & QUIET)) {
+		va_start( va, msg );
+		printn( msg, va );
+		va_end( va );
+		need_nl = 0;
 	}
 }
 
@@ -138,7 +156,7 @@ sys_error( const char *msg, ... )
 
 	flushn();
 	va_start( va, msg );
-	if ((unsigned)vsnprintf( buf, sizeof(buf), msg, va ) >= sizeof(buf))
+	if ((uint)vsnprintf( buf, sizeof(buf), msg, va ) >= sizeof(buf))
 		oob();
 	va_end( va );
 	perror( buf );
@@ -222,6 +240,21 @@ starts_with( const char *str, int strl, const char *cmp, int cmpl )
 	if (strl < 0)
 		strl = strnlen( str, cmpl + 1 );
 	return (strl >= cmpl) && !memcmp( str, cmp, cmpl );
+}
+
+int
+starts_with_upper( const char *str, int strl, const char *cmp, int cmpl )
+{
+	int i;
+
+	if (strl < 0)
+		strl = strnlen( str, cmpl + 1 );
+	if (strl < cmpl)
+		return 0;
+	for (i = 0; i < cmpl; i++)
+		if (str[i] != cmp[i] && toupper( str[i] ) != cmp[i])
+			return 0;
+	return 1;
 }
 
 int
@@ -311,7 +344,7 @@ nfsnprintf( char *buf, int blen, const char *fmt, ... )
 	va_list va;
 
 	va_start( va, fmt );
-	if (blen <= 0 || (unsigned)(ret = vsnprintf( buf, blen, fmt, va )) >= (unsigned)blen)
+	if (blen <= 0 || (uint)(ret = vsnprintf( buf, blen, fmt, va )) >= (uint)blen)
 		oob();
 	va_end( va );
 	return ret;
@@ -355,13 +388,18 @@ nfrealloc( void *mem, size_t sz )
 }
 
 char *
+nfstrndup( const char *str, size_t nchars )
+{
+	char *ret = nfmalloc( nchars + 1 );
+	memcpy( ret, str, nchars );
+	ret[nchars] = 0;
+	return ret;
+}
+
+char *
 nfstrdup( const char *str )
 {
-	char *ret;
-
-	if (!(ret = strdup( str )))
-		oom();
-	return ret;
+	return nfstrndup( str, strlen( str ) );
 }
 
 int
@@ -405,15 +443,6 @@ cur_user( void )
 }
 */
 
-static char *
-my_strndup( const char *s, size_t nchars )
-{
-	char *r = nfmalloc( nchars + 1 );
-	memcpy( r, s, nchars );
-	r[nchars] = 0;
-	return r;
-}
-
 char *
 expand_strdup( const char *s )
 {
@@ -431,7 +460,7 @@ expand_strdup( const char *s )
 			q = Home;
 		} else {
 			if ((p = strchr( s, '/' ))) {
-				r = my_strndup( s, (int)(p - s) );
+				r = nfstrndup( s, (int)(p - s) );
 				pw = getpwnam( r );
 				free( r );
 			} else
@@ -518,14 +547,14 @@ sort_ints( int *arr, int len )
 
 
 static struct {
-	unsigned char i, j, s[256];
+	uchar i, j, s[256];
 } rs;
 
 void
 arc4_init( void )
 {
 	int i, fd;
-	unsigned char j, si, dat[128];
+	uchar j, si, dat[128];
 
 	if ((fd = open( "/dev/urandom", O_RDONLY )) < 0 && (fd = open( "/dev/random", O_RDONLY )) < 0) {
 		error( "Fatal: no random number source available.\n" );
@@ -551,10 +580,10 @@ arc4_init( void )
 		arc4_getbyte();
 }
 
-unsigned char
+uchar
 arc4_getbyte( void )
 {
-	unsigned char si, sj;
+	uchar si, sj;
 
 	rs.i++;
 	si = rs.s[rs.i];
@@ -565,7 +594,7 @@ arc4_getbyte( void )
 	return rs.s[(si + sj) & 0xff];
 }
 
-static const unsigned char prime_deltas[] = {
+static const uchar prime_deltas[] = {
     0,  0,  1,  3,  1,  5,  3,  3,  1,  9,  7,  5,  3, 17, 27,  3,
     1, 29,  3, 21,  7, 17, 15,  9, 43, 35, 15,  0,  0,  0,  0,  0
 };
@@ -584,146 +613,248 @@ bucketsForSize( int size )
 	}
 }
 
+static void
+list_prepend( list_head_t *head, list_head_t *to )
+{
+	assert( !head->next );
+	assert( to->next );
+	assert( to->prev->next == to );
+	head->next = to;
+	head->prev = to->prev;
+	head->prev->next = head;
+	to->prev = head;
+}
+
+static void
+list_unlink( list_head_t *head )
+{
+	assert( head->next );
+	assert( head->next->prev == head);
+	assert( head->prev->next == head);
+	head->next->prev = head->prev;
+	head->prev->next = head->next;
+	head->next = head->prev = 0;
+}
+
+static notifier_t *notifiers;
+static int changed;  /* Iterator may be invalid now. */
 #ifdef HAVE_SYS_POLL_H
 static struct pollfd *pollfds;
+static int npolls, rpolls;
 #else
 # ifdef HAVE_SYS_SELECT_H
 #  include <sys/select.h>
 # endif
-# define pollfds fdparms
 #endif
-static struct {
-	void (*cb)( int what, void *aux );
-	void *aux;
-#ifndef HAVE_SYS_POLL_H
-	int fd, events;
-#endif
-	int faked;
-} *fdparms;
-static int npolls, rpolls, changed;
-
-static int
-find_fd( int fd )
-{
-	int n;
-
-	for (n = 0; n < npolls; n++)
-		if (pollfds[n].fd == fd)
-			return n;
-	return -1;
-}
 
 void
-add_fd( int fd, void (*cb)( int events, void *aux ), void *aux )
+init_notifier( notifier_t *sn, int fd, void (*cb)( int, void * ), void *aux )
 {
-	int n;
-
-	assert( find_fd( fd ) < 0 );
-	n = npolls++;
+#ifdef HAVE_SYS_POLL_H
+	int idx = npolls++;
 	if (rpolls < npolls) {
 		rpolls = npolls;
-#ifdef HAVE_SYS_POLL_H
-		pollfds = nfrealloc(pollfds, npolls * sizeof(*pollfds));
-#endif
-		fdparms = nfrealloc(fdparms, npolls * sizeof(*fdparms));
+		pollfds = nfrealloc( pollfds, npolls * sizeof(*pollfds) );
 	}
-	pollfds[n].fd = fd;
-	pollfds[n].events = 0; /* POLLERR & POLLHUP implicit */
-	fdparms[n].faked = 0;
-	fdparms[n].cb = cb;
-	fdparms[n].aux = aux;
-	changed = 1;
-}
-
-void
-conf_fd( int fd, int and_events, int or_events )
-{
-	int n = find_fd( fd );
-	assert( n >= 0 );
-	pollfds[n].events = (pollfds[n].events & and_events) | or_events;
-}
-
-void
-fake_fd( int fd, int events )
-{
-	int n = find_fd( fd );
-	assert( n >= 0 );
-	fdparms[n].faked |= events;
-}
-
-void
-del_fd( int fd )
-{
-	int n = find_fd( fd );
-	assert( n >= 0 );
-	npolls--;
-#ifdef HAVE_SYS_POLL_H
-	memmove(pollfds + n, pollfds + n + 1, (npolls - n) * sizeof(*pollfds));
+	pollfds[idx].fd = fd;
+	pollfds[idx].events = 0; /* POLLERR & POLLHUP implicit */
+	sn->index = idx;
+#else
+	sn->fd = fd;
+	sn->events = 0;
 #endif
-	memmove(fdparms + n, fdparms + n + 1, (npolls - n) * sizeof(*fdparms));
+	sn->cb = cb;
+	sn->aux = aux;
+	sn->next = notifiers;
+	notifiers = sn;
+}
+
+void
+conf_notifier( notifier_t *sn, int and_events, int or_events )
+{
+#ifdef HAVE_SYS_POLL_H
+	int idx = sn->index;
+	pollfds[idx].events = (pollfds[idx].events & and_events) | or_events;
+#else
+	sn->events = (sn->events & and_events) | or_events;
+#endif
+}
+
+void
+wipe_notifier( notifier_t *sn )
+{
+	notifier_t **snp;
+#ifdef HAVE_SYS_POLL_H
+	int idx;
+#endif
+
+	for (snp = &notifiers; *snp != sn; snp = &(*snp)->next)
+		assert( *snp );
+	*snp = sn->next;
+	sn->next = 0;
 	changed = 1;
+
+#ifdef HAVE_SYS_POLL_H
+	idx = sn->index;
+	memmove( pollfds + idx, pollfds + idx + 1, (--npolls - idx) * sizeof(*pollfds) );
+	for (sn = notifiers; sn; sn = sn->next) {
+		if (sn->index > idx)
+			sn->index--;
+	}
+#endif
+}
+
+static int nowvalid;
+static time_t now;
+
+static time_t
+get_now( void )
+{
+	if (!nowvalid) {
+		nowvalid = 1;
+		return time( &now );
+	}
+	return now;
+}
+
+static list_head_t timers = { &timers, &timers };
+
+void
+init_wakeup( wakeup_t *tmr, void (*cb)( void * ), void *aux )
+{
+	tmr->cb = cb;
+	tmr->aux = aux;
+	tmr->links.next = tmr->links.prev = 0;
+}
+
+void
+wipe_wakeup( wakeup_t *tmr )
+{
+	if (tmr->links.next)
+		list_unlink( &tmr->links );
+}
+
+void
+conf_wakeup( wakeup_t *tmr, int to )
+{
+	list_head_t *head, *succ;
+
+	if (to < 0) {
+		if (tmr->links.next)
+			list_unlink( &tmr->links );
+	} else {
+		time_t timeout = get_now() + to;
+		tmr->timeout = timeout;
+		if (!to) {
+			/* We always prepend null timers, to cluster related events. */
+			succ = timers.next;
+		} else {
+			/* We start at the end in the expectation that the newest timer is likely to fire last
+			 * (which will be true only if all timeouts are equal, but it's an as good guess as any). */
+			for (succ = &timers; (head = succ->prev) != &timers; succ = head) {
+				if (head != &tmr->links && timeout > ((wakeup_t *)head)->timeout)
+					break;
+			}
+			assert( head != &tmr->links );
+		}
+		if (succ != &tmr->links) {
+			if (tmr->links.next)
+				list_unlink( &tmr->links );
+			list_prepend( &tmr->links, succ );
+		}
+	}
 }
 
 #define shifted_bit(in, from, to) \
-	(((unsigned)(in) & from) \
+	(((uint)(in) & from) \
 		/ (from > to ? from / to : 1) \
 		* (to > from ? to / from : 1))
 
 static void
 event_wait( void )
 {
-	int m, n;
+	list_head_t *head;
+	notifier_t *sn;
+	int m;
 
 #ifdef HAVE_SYS_POLL_H
 	int timeout = -1;
-	for (n = 0; n < npolls; n++)
-		if (fdparms[n].faked) {
-			timeout = 0;
-			break;
+	nowvalid = 0;
+	if ((head = timers.next) != &timers) {
+		wakeup_t *tmr = (wakeup_t *)head;
+		int delta = tmr->timeout - get_now();
+		if (delta <= 0) {
+			list_unlink( head );
+			tmr->cb( tmr->aux );
+			return;
 		}
-	if (poll( pollfds, npolls, timeout ) < 0) {
+		timeout = delta * 1000;
+	}
+	switch (poll( pollfds, npolls, timeout )) {
+	case 0:
+		return;
+	case -1:
 		perror( "poll() failed in event loop" );
 		abort();
+	default:
+		break;
 	}
-	for (n = 0; n < npolls; n++)
-		if ((m = pollfds[n].revents | fdparms[n].faked)) {
+	for (sn = notifiers; sn; sn = sn->next) {
+		int n = sn->index;
+		if ((m = pollfds[n].revents)) {
 			assert( !(m & POLLNVAL) );
-			fdparms[n].faked = 0;
-			fdparms[n].cb( m | shifted_bit( m, POLLHUP, POLLIN ), fdparms[n].aux );
+			sn->cb( m | shifted_bit( m, POLLHUP, POLLIN ), sn->aux );
 			if (changed) {
 				changed = 0;
 				break;
 			}
 		}
+	}
 #else
 	struct timeval *timeout = 0;
-	static struct timeval null_tv;
+	struct timeval to_tv;
 	fd_set rfds, wfds, efds;
 	int fd;
 
+	nowvalid = 0;
+	if ((head = timers.next) != &timers) {
+		wakeup_t *tmr = (wakeup_t *)head;
+		int delta = tmr->timeout - get_now();
+		if (delta <= 0) {
+			list_unlink( head );
+			tmr->cb( tmr->aux );
+			return;
+		}
+		to_tv.tv_sec = delta;
+		to_tv.tv_usec = 0;
+		timeout = &to_tv;
+	}
 	FD_ZERO( &rfds );
 	FD_ZERO( &wfds );
 	FD_ZERO( &efds );
 	m = -1;
-	for (n = 0; n < npolls; n++) {
-		if (fdparms[n].faked)
-			timeout = &null_tv;
-		fd = fdparms[n].fd;
-		if (fdparms[n].events & POLLIN)
+	for (sn = notifiers; sn; sn = sn->next) {
+		fd = sn->fd;
+		if (sn->events & POLLIN)
 			FD_SET( fd, &rfds );
-		if (fdparms[n].events & POLLOUT)
+		if (sn->events & POLLOUT)
 			FD_SET( fd, &wfds );
 		FD_SET( fd, &efds );
 		if (fd > m)
 			m = fd;
 	}
-	if (select( m + 1, &rfds, &wfds, &efds, timeout ) < 0) {
+	switch (select( m + 1, &rfds, &wfds, &efds, timeout )) {
+	case 0:
+		return;
+	case -1:
 		perror( "select() failed in event loop" );
 		abort();
+	default:
+		break;
 	}
-	for (n = 0; n < npolls; n++) {
-		fd = fdparms[n].fd;
-		m = fdparms[n].faked;
+	for (sn = notifiers; sn; sn = sn->next) {
+		fd = sn->fd;
+		m = 0;
 		if (FD_ISSET( fd, &rfds ))
 			m |= POLLIN;
 		if (FD_ISSET( fd, &wfds ))
@@ -731,8 +862,7 @@ event_wait( void )
 		if (FD_ISSET( fd, &efds ))
 			m |= POLLERR;
 		if (m) {
-			fdparms[n].faked = 0;
-			fdparms[n].cb( m, fdparms[n].aux );
+			sn->cb( m, sn->aux );
 			if (changed) {
 				changed = 0;
 				break;
@@ -745,6 +875,6 @@ event_wait( void )
 void
 main_loop( void )
 {
-	while (npolls)
+	while (notifiers || timers.next != &timers)
 		event_wait();
 }

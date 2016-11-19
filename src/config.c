@@ -36,10 +36,7 @@
 
 store_conf_t *stores;
 
-#define ARG_OPTIONAL 0
-#define ARG_REQUIRED 1
-
-static char *
+char *
 get_arg( conffile_t *cfile, int required, int *comment )
 {
 	char *ret, *p, *t;
@@ -48,7 +45,7 @@ get_arg( conffile_t *cfile, int required, int *comment )
 
 	p = cfile->rest;
 	assert( p );
-	while ((c = *p) && isspace( (unsigned char) c ))
+	while ((c = *p) && isspace( (uchar)c ))
 		p++;
 	if (!c || c == '#') {
 		if (comment)
@@ -68,7 +65,7 @@ get_arg( conffile_t *cfile, int required, int *comment )
 				escaped = 1;
 			else if (c == '"')
 				quoted ^= 1;
-			else if (!quoted && isspace( (unsigned char) c ))
+			else if (!quoted && isspace( (uchar)c ))
 				break;
 			else
 				*t++ = c;
@@ -146,10 +143,20 @@ parse_size( conffile_t *cfile )
 	return ret;
 }
 
+static const struct {
+	int op;
+	const char *name;
+} boxOps[] = {
+	{ OP_EXPUNGE, "Expunge" },
+	{ OP_CREATE, "Create" },
+	{ OP_REMOVE, "Remove" },
+};
+
 static int
 getopt_helper( conffile_t *cfile, int *cops, channel_conf_t *conf )
 {
 	char *arg;
+	uint i;
 
 	if (!strcasecmp( "Sync", cfile->cmd )) {
 		arg = cfile->val;
@@ -191,38 +198,6 @@ getopt_helper( conffile_t *cfile, int *cops, channel_conf_t *conf )
 			}
 		while ((arg = get_arg( cfile, ARG_OPTIONAL, 0 )));
 		conf->ops[M] |= XOP_HAVE_TYPE;
-	} else if (!strcasecmp( "Expunge", cfile->cmd )) {
-		arg = cfile->val;
-		do
-			if (!strcasecmp( "Both", arg ))
-				*cops |= OP_EXPUNGE;
-			else if (!strcasecmp( "Master", arg ))
-				conf->ops[M] |= OP_EXPUNGE;
-			else if (!strcasecmp( "Slave", arg ))
-				conf->ops[S] |= OP_EXPUNGE;
-			else if (strcasecmp( "None", arg )) {
-				error( "%s:%d: invalid Expunge arg '%s'\n",
-				       cfile->file, cfile->line, arg );
-				cfile->err = 1;
-			}
-		while ((arg = get_arg( cfile, ARG_OPTIONAL, 0 )));
-		conf->ops[M] |= XOP_HAVE_EXPUNGE;
-	} else if (!strcasecmp( "Create", cfile->cmd )) {
-		arg = cfile->val;
-		do
-			if (!strcasecmp( "Both", arg ))
-				*cops |= OP_CREATE;
-			else if (!strcasecmp( "Master", arg ))
-				conf->ops[M] |= OP_CREATE;
-			else if (!strcasecmp( "Slave", arg ))
-				conf->ops[S] |= OP_CREATE;
-			else if (strcasecmp( "None", arg )) {
-				error( "%s:%d: invalid Create arg '%s'\n",
-				       cfile->file, cfile->line, arg );
-				cfile->err = 1;
-			}
-		while ((arg = get_arg( cfile, ARG_OPTIONAL, 0 )));
-		conf->ops[M] |= XOP_HAVE_CREATE;
 	} else if (!strcasecmp( "SyncState", cfile->cmd ))
 		conf->sync_state = expand_strdup( cfile->val );
 	else if (!strcasecmp( "CopyArrivalDate", cfile->cmd ))
@@ -231,16 +206,43 @@ getopt_helper( conffile_t *cfile, int *cops, channel_conf_t *conf )
 		conf->max_messages = parse_int( cfile );
 	else if (!strcasecmp( "ExpireUnread", cfile->cmd ))
 		conf->expire_unread = parse_bool( cfile );
-	else
+	else {
+		for (i = 0; i < as(boxOps); i++) {
+			if (!strcasecmp( boxOps[i].name, cfile->cmd )) {
+				int op = boxOps[i].op;
+				arg = cfile->val;
+				do {
+					if (!strcasecmp( "Both", arg )) {
+						*cops |= op;
+					} else if (!strcasecmp( "Master", arg )) {
+						conf->ops[M] |= op;
+					} else if (!strcasecmp( "Slave", arg )) {
+						conf->ops[S] |= op;
+					} else if (strcasecmp( "None", arg )) {
+						error( "%s:%d: invalid %s arg '%s'\n",
+						       cfile->file, cfile->line, boxOps[i].name, arg );
+						cfile->err = 1;
+					}
+				} while ((arg = get_arg( cfile, ARG_OPTIONAL, 0 )));
+				conf->ops[M] |= op * (XOP_HAVE_EXPUNGE / OP_EXPUNGE);
+				return 1;
+			}
+		}
 		return 0;
+	}
 	return 1;
 }
 
 int
 getcline( conffile_t *cfile )
 {
+	char *arg;
 	int comment;
 
+	if (cfile->rest && (arg = get_arg( cfile, ARG_OPTIONAL, 0 ))) {
+		error( "%s:%d: excess token '%s'\n", cfile->file, cfile->line, arg );
+		cfile->err = 1;
+	}
 	while (fgets( cfile->buf, cfile->bufl, cfile->fp )) {
 		cfile->line++;
 		cfile->rest = cfile->buf;
@@ -260,7 +262,8 @@ getcline( conffile_t *cfile )
 int
 merge_ops( int cops, int ops[] )
 {
-	int aops;
+	int aops, op;
+	uint i;
 
 	aops = ops[M] | ops[S];
 	if (ops[M] & XOP_HAVE_TYPE) {
@@ -293,21 +296,16 @@ merge_ops( int cops, int ops[] )
 				ops[M] |= cops & OP_MASK_TYPE;
 		}
 	}
-	if (ops[M] & XOP_HAVE_EXPUNGE) {
-		if (aops & cops & OP_EXPUNGE) {
-			error( "Conflicting Expunge args specified.\n" );
-			return 1;
+	for (i = 0; i < as(boxOps); i++) {
+		op = boxOps[i].op;
+		if (ops[M] & (op * (XOP_HAVE_EXPUNGE / OP_EXPUNGE))) {
+			if (aops & cops & op) {
+				error( "Conflicting %s args specified.\n", boxOps[i].name );
+				return 1;
+			}
+			ops[M] |= cops & op;
+			ops[S] |= cops & op;
 		}
-		ops[M] |= cops & OP_EXPUNGE;
-		ops[S] |= cops & OP_EXPUNGE;
-	}
-	if (ops[M] & XOP_HAVE_CREATE) {
-		if (aops & cops & OP_CREATE) {
-			error( "Conflicting Create args specified.\n" );
-			return 1;
-		}
-		ops[M] |= cops & OP_CREATE;
-		ops[S] |= cops & OP_CREATE;
 	}
 	return 0;
 }
@@ -344,6 +342,7 @@ load_config( const char *where, int pseudo )
 	cfile.bufl = sizeof(buf) - 1;
 	cfile.line = 0;
 	cfile.err = 0;
+	cfile.rest = 0;
 
 	gcops = 0;
 	global_conf.expire_unread = -1;
@@ -469,6 +468,27 @@ load_config( const char *where, int pseudo )
 		else if (!strcasecmp( "FSync", cfile.cmd ))
 		{
 			UseFSync = parse_bool( &cfile );
+		}
+		else if (!strcasecmp( "FieldDelimiter", cfile.cmd ))
+		{
+			if (strlen( cfile.val ) != 1) {
+				error( "%s:%d: Field delimiter must be exactly one character long\n", cfile.file, cfile.line );
+				cfile.err = 1;
+			} else {
+				FieldDelimiter = cfile.val[0];
+				if (!ispunct( FieldDelimiter )) {
+					error( "%s:%d: Field delimiter must be a punctuation character\n", cfile.file, cfile.line );
+					cfile.err = 1;
+				}
+			}
+		}
+		else if (!strcasecmp( "BufferLimit", cfile.cmd ))
+		{
+			BufferLimit = parse_size( &cfile );
+			if (BufferLimit <= 0) {
+				error( "%s:%d: BufferLimit must be positive\n", cfile.file, cfile.line );
+				cfile.err = 1;
+			}
 		}
 		else if (!getopt_helper( &cfile, &gcops, &global_conf ))
 		{
