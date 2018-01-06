@@ -36,8 +36,8 @@ the operation set can be selected in a fine-grained manner.
 .br
 Synchronization is based on unique message identifiers (UIDs), so no
 identification conflicts can occur (unlike with some other mail synchronizers).
-OTOH, \fBmbsync\fR is susceptible to UID validity changes (that \fIshould\fR
-never happen, but see "Compatibility" in the README).
+OTOH, \fBmbsync\fR is susceptible to UID validity changes (but will recover
+just fine if the change is unfounded).
 Synchronization state is kept in one local text file per mailbox pair;
 these files are protected against concurrent \fBmbsync\fR processes.
 Mailboxes can be safely modified while \fBmbsync\fR operates
@@ -83,11 +83,15 @@ Display version information.
 \fB-V\fR, \fB--verbose\fR
 Enable \fIverbose\fR mode, which displays what is currently happening.
 .TP
-\fB-D\fR[\fBC\fR][\fBm\fR][\fBM\fR][\fBn\fR|\fBN\fR][\fBs\fR]\fR]\fR,\
- \fB--debug\fR[\fB-crash\fR|\fB-maildir\fR|\fB-main\fR|\fB-net\fR|\fB-net-all\fR|\fB-sync\fR]
+\fB-D\fR[\fBC\fR][\fBd\fR|\fBD\fR][\fBm\fR][\fBM\fR][\fBn\fR|\fBN\fR][\fBs\fR]\fR]\fR,\
+ \fB--debug\fR[\fB-crash\fR|\fB-driver\fR|\fB-driver-all\fR|\fB-maildir\fR|\fB-main\fR|\fB-net\fR|\fB-net-all\fR|\fB-sync\fR]
 Enable debugging categories:
 .in +4
 \fBC\fR, \fBcrash\fR - use built-in crash handler
+.br
+\fBd\fR, \fBdriver\fR - print driver calls (metadata only)
+.br
+\fBD\fR, \fBdriver-all\fR - print driver calls (including messages)
 .br
 \fBm\fR, \fBmaildir\fR - print maildir debug info
 .br
@@ -244,6 +248,7 @@ Define the Maildir Store \fIname\fR, opening a section for its parameters.
 Use the \fBalternative\fR UID storage scheme for mailboxes in this Store.
 This does not affect mailboxes that do already have a UID storage scheme;
 use \fBmdconvert\fR to change it.
+See \fBRECOMMENDATIONS\fR below.
 (Default: \fBno\fR)
 ..
 .TP
@@ -258,6 +263,27 @@ The character used to delimit the info field from a message's basename.
 The Maildir standard defines this to be the colon, but this is incompatible
 with DOS/Windows file systems.
 (Default: the value of \fBFieldDelimiter\fR)
+..
+.TP
+\fBSubFolders\fR \fBVerbatim\fR|\fBMaildir++\fR|\fBLegacy\fR
+The on-disk folder naming style used for hierarchical mailboxes.
+This has option has no effect when \fBFlatten\fR is used.
+.br
+Suppose mailboxes with the canonical paths \fBtop/sub/subsub\fR and
+\fBINBOX/sub/subsub\fR, the styles will yield the following on-disk paths:
+.br
+\fBVerbatim\fR - \fIPath\fB/top/sub/subsub\fR and \fIInbox\fB/sub/subsub\fR
+(this is the style you probably want to use)
+.br
+\fBMaildir++\fR - \fIInbox\fB/.top.sub.subsub\fR and \fIInbox\fB/..sub.subsub\fR
+(this style is compatible with Courier and Dovecot - but note that
+the mailbox metadata format is \fInot\fR compatible).
+Note that attempts to set \fBPath\fR are rejected in this mode.
+.br
+\fBLegacy\fR - \fIPath\fB/top/.sub/.subsub\fR and \fIInbox\fB/.sub/.subsub\fR
+(this is \fBmbsync\fR's historical style)
+.br
+(Default: unset; will error out when sub-folders are encountered)
 ..
 .SS IMAP4 Accounts
 .TP
@@ -278,6 +304,12 @@ Specify the TCP port number of the IMAP server.  (Default: 143 for IMAP,
 993 for IMAPS)
 .br
 If \fBTunnel\fR is used, this setting is ignored.
+..
+.TP
+\fBTimeout\fR \fItimeout\fR
+Specify the connect and data timeout for the IMAP server in seconds.
+Zero means unlimited.
+(Default: \fI20\fR)
 ..
 .TP
 \fBUser\fR \fIusername\fR
@@ -332,12 +364,10 @@ so it is the default (unless a tunnel is used).
 right after connecting the secure IMAP port 993.
 ..
 .TP
-\fBSSLVersions\fR [\fBSSLv2\fR] [\fBSSLv3\fR] [\fBTLSv1\fR] [\fBTLSv1.1\fR] [\fBTLSv1.2\fR]
+\fBSSLVersions\fR [\fBSSLv3\fR] [\fBTLSv1\fR] [\fBTLSv1.1\fR] [\fBTLSv1.2\fR]
 Select the acceptable SSL/TLS versions.
-Use of SSLv2 is strongly discouraged for security reasons, but might be the
-only option on some very old servers.
-Generally, the newest TLS version is recommended, but as this confuses some
-servers, \fBTLSv1\fR is the default.
+Use old versions only when the server has problems with newer ones.
+(Default: [\fBTLSv1\fR] [\fBTLSv1.1\fR] [\fBTLSv1.2\fR]).
 ..
 .TP
 \fBSystemCertificates\fR \fByes\fR|\fBno\fR
@@ -355,11 +385,32 @@ Note that the system's default certificate store is always used
 and should not be specified here.
 ..
 .TP
+\fBClientCertificate\fR \fIpath\fR
+File containing a client certificate to send to the server.
+\fBClientKey\fR should also be specified.
+.br
+Note that client certificate verification is usually not required,
+so it is unlikely that you need this option.
+..
+.TP
+\fBClientKey\fR \fIpath\fR
+File containing the private key corresponding to \fBClientCertificate\fR.
+..
+.TP
 \fBPipelineDepth\fR \fIdepth\fR
 Maximum number of IMAP commands which can be simultaneously in flight.
 Setting this to \fI1\fR disables pipelining.
-This is mostly a debugging only option.
+This is mostly a debugging option, but may also be used to limit average
+bandwidth consumption (GMail may require this if you have a very fast
+connection), or to spare flaky servers like M$ Exchange.
 (Default: \fIunlimited\fR)
+..
+.TP
+\fBDisableExtension\fR[\fBs\fR] \fIextension\fR ...
+Disable the use of specific IMAP extensions.
+This can be used to work around bugs in servers
+(and possibly \fBmbsync\fR itself).
+(Default: empty)
 ..
 .SS IMAP Stores
 The reference point for relative \fBPath\fRs is whatever the server likes it
@@ -656,6 +707,17 @@ If your server supports auto-trashing (as Gmail does), it is probably a
 good idea to rely on that instead of \fBmbsync\fR's trash functionality.
 If you do that, and intend to synchronize the trash like other mailboxes,
 you should not use \fBmbsync\fR's \fBTrash\fR option at all.
+.P
+Use of the \fBTrash\fR option with M$ Exchange 2013 requires the use of
+\fBDisableExtension MOVE\fR due to a server bug.
+.P
+When using the more efficient default UID mapping scheme, it is important
+that the MUA renames files when moving them between Maildir folders.
+Mutt always does that, while mu4e needs to be configured to do it:
+.br
+.in +4
+(setq mu4e-change-filenames-when-moving t)
+.in -4
 ..
 .SH INHERENT PROBLEMS
 Changes done after \fBmbsync\fR has retrieved the message list will not be

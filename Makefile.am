@@ -1,5 +1,5 @@
 SUBDIRS = src
-bin_SCRIPTS = get-cert
+bin_SCRIPTS = mbsync-get-cert
 EXTRA_DIST = debian isync.spec $(bin_SCRIPTS)
 
 LOG_PL = \
@@ -51,19 +51,19 @@ $(srcdir)/ChangeLog: log
 log:
 	@test -z "$(srcdir)" || cd $(srcdir) && \
 	 ( ! test -d .git || \
-	   git log --date=iso --log-size --name-only --no-merges | \
+	   git log --pretty=medium --date=iso --log-size --name-only --no-merges | \
 	     perl -e '$(LOG_PL)' > ChangeLog )
 
-deb: deb-clean
-	CFLAGS= fakeroot debian/rules binary
+cov-scan: clean
+	/opt/cov-analysis-*/bin/cov-build --dir cov-int $(MAKE)
+	tar cavf isync.tar.xz cov-int
 
-deb-clean:
-	dh_clean -Xsrc/
-	fakeroot debian/rules clean
+deb:
+	CFLAGS= INSTALL= dpkg-buildpackage -b --no-sign
 
 dist-hook:
 	find $(distdir)/debian \( -name .#\*# -o -type l \) -print0 | xargs -0r rm -rf
-	-cd $(distdir)/debian && test -f .gitignore && rm -rf `cat .gitignore` .gitignore
+	-cd $(distdir)/debian && test -f .gitignore && rm -rf `cut -c2- .gitignore` .gitignore
 
 dist-sign: dist
 	gpg -b -a $(PACKAGE)-$(VERSION).tar.gz

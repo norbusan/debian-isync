@@ -39,8 +39,11 @@
 #ifdef HAVE_LIBSSL
 # include <openssl/ssl.h>
 # include <openssl/err.h>
-# include <openssl/hmac.h>
 # include <openssl/x509v3.h>
+# if OPENSSL_VERSION_NUMBER < 0x10100000L
+#  define X509_OBJECT_get0_X509(o) ((o)->data.x509)
+#  define X509_STORE_get0_objects(o) ((o)->objs)
+# endif
 #endif
 
 enum {
@@ -69,7 +72,7 @@ ssl_return( const char *func, conn_t *conn, int ret )
 		return ret;
 	case SSL_ERROR_WANT_WRITE:
 		conf_notifier( &conn->notify, POLLIN, POLLOUT );
-		/* fallthrough */
+		FALLTHROUGH
 	case SSL_ERROR_WANT_READ:
 		return 0;
 	case SSL_ERROR_SYSCALL:
@@ -172,13 +175,13 @@ verify_cert_host( const server_conf_t *conf, conn_t *sock )
 
 	trusted = (STACK_OF(X509_OBJECT) *)sock->conf->trusted_certs;
 	for (i = 0; i < sk_X509_OBJECT_num( trusted ); i++) {
-		if (!X509_cmp( cert, sk_X509_OBJECT_value( trusted, i )->data.x509 ))
+		if (!X509_cmp( cert, X509_OBJECT_get0_X509( sk_X509_OBJECT_value( trusted, i ) ) ))
 			return 0;
 	}
 
 	err = SSL_get_verify_result( sock->ssl );
 	if (err != X509_V_OK) {
-		error( "SSL error connecting %s: %s\n", sock->name, ERR_error_string( err, NULL ) );
+		error( "SSL error connecting %s: %s\n", sock->name, X509_verify_cert_error_string( err ) );
 		return -1;
 	}
 
@@ -201,8 +204,6 @@ init_ssl_ctx( const server_conf_t *conf )
 
 	mconf->SSLContext = SSL_CTX_new( SSLv23_client_method() );
 
-	if (!(conf->ssl_versions & SSLv2))
-		options |= SSL_OP_NO_SSLv2;
 	if (!(conf->ssl_versions & SSLv3))
 		options |= SSL_OP_NO_SSLv3;
 	if (!(conf->ssl_versions & TLSv1))
@@ -223,12 +224,23 @@ init_ssl_ctx( const server_conf_t *conf )
 		       conf->cert_file, ERR_error_string( ERR_get_error(), 0 ) );
 		return 0;
 	}
-	mconf->trusted_certs = (_STACK *)sk_X509_OBJECT_dup( SSL_CTX_get_cert_store( mconf->SSLContext )->objs );
+	mconf->trusted_certs = (_STACK *)sk_X509_OBJECT_dup( X509_STORE_get0_objects( SSL_CTX_get_cert_store( mconf->SSLContext ) ) );
 	if (mconf->system_certs && !SSL_CTX_set_default_verify_paths( mconf->SSLContext ))
 		warn( "Warning: Unable to load default certificate files: %s\n",
 		      ERR_error_string( ERR_get_error(), 0 ) );
 
 	SSL_CTX_set_verify( mconf->SSLContext, SSL_VERIFY_NONE, NULL );
+
+	if (conf->client_certfile && !SSL_CTX_use_certificate_chain_file( mconf->SSLContext, conf->client_certfile)) {
+		error( "Error while loading client certificate file '%s': %s\n",
+		       conf->client_certfile, ERR_error_string( ERR_get_error(), 0 ) );
+		return 0;
+	}
+	if (conf->client_keyfile && !SSL_CTX_use_PrivateKey_file( mconf->SSLContext, conf->client_keyfile, SSL_FILETYPE_PEM)) {
+		error( "Error while loading client private key '%s': %s\n",
+		       conf->client_keyfile, ERR_error_string( ERR_get_error(), 0 ) );
+		return 0;
+	}
 
 	mconf->ssl_ctx_valid = 1;
 	return 1;
@@ -260,6 +272,7 @@ socket_start_tls( conn_t *conn, void (*cb)( int ok, void *aux ) )
 	conn->ssl = SSL_new( ((server_conf_t *)conn->conf)->SSLContext );
 	SSL_set_fd( conn->ssl, conn->fd );
 	SSL_set_mode( conn->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER );
+	socket_expect_read( conn, 1 );
 	conn->state = SCK_STARTTLS;
 	start_tls_p2( conn );
 }
@@ -279,6 +292,7 @@ start_tls_p2( conn_t *conn )
 
 static void start_tls_p3( conn_t *conn, int ok )
 {
+	socket_expect_read( conn, 0 );
 	conn->state = SCK_READY;
 	conn->callbacks.starttls( ok, conn->callback_aux );
 }
@@ -288,6 +302,14 @@ static void start_tls_p3( conn_t *conn, int ok )
 #ifdef HAVE_LIBZ
 
 static void z_fake_cb( void * );
+
+static const char *
+z_err_msg( int code, z_streamp strm )
+{
+	/* zlib's consistency in populating z_stream->msg is somewhat
+	 * less than stellar. zError() is undocumented. */
+	return strm->msg ? strm->msg : zError( code );
+}
 
 void
 socket_start_deflate( conn_t *conn )
@@ -300,7 +322,7 @@ socket_start_deflate( conn_t *conn )
 			-15 /* Use raw deflate */
 		);
 	if (result != Z_OK) {
-		error( "Fatal: Cannot initialize decompression: %s\n", conn->in_z->msg );
+		error( "Fatal: Cannot initialize decompression: %s\n", z_err_msg( result, conn->in_z ) );
 		abort();
 	}
 
@@ -314,7 +336,7 @@ socket_start_deflate( conn_t *conn )
 			Z_DEFAULT_STRATEGY /* Don't try to do anything fancy */
 		);
 	if (result != Z_OK) {
-		error( "Fatal: Cannot initialize compression: %s\n", conn->out_z->msg );
+		error( "Fatal: Cannot initialize compression: %s\n", z_err_msg( result, conn->out_z ) );
 		abort();
 	}
 
@@ -324,8 +346,10 @@ socket_start_deflate( conn_t *conn )
 
 static void socket_fd_cb( int, void * );
 static void socket_fake_cb( void * );
+static void socket_timeout_cb( void * );
 
 static void socket_connect_one( conn_t * );
+static void socket_connect_next( conn_t * );
 static void socket_connect_failed( conn_t * );
 static void socket_connected( conn_t * );
 static void socket_connect_bail( conn_t * );
@@ -337,6 +361,7 @@ socket_open_internal( conn_t *sock, int fd )
 	fcntl( fd, F_SETFL, O_NONBLOCK );
 	init_notifier( &sock->notify, fd, socket_fd_cb, sock );
 	init_wakeup( &sock->fd_fake, socket_fake_cb, sock );
+	init_wakeup( &sock->fd_timeout, socket_timeout_cb, sock );
 }
 
 static void
@@ -344,6 +369,7 @@ socket_close_internal( conn_t *sock )
 {
 	wipe_notifier( &sock->notify );
 	wipe_wakeup( &sock->fd_fake );
+	wipe_wakeup( &sock->fd_timeout );
 	close( sock->fd );
 	sock->fd = -1;
 }
@@ -466,8 +492,8 @@ socket_connect_one( conn_t *sock )
 	s = socket( PF_INET, SOCK_STREAM, 0 );
 #endif
 	if (s < 0) {
-		perror( "socket" );
-		exit( 1 );
+		socket_connect_next( sock );
+		return;
 	}
 	socket_open_internal( sock, s );
 
@@ -482,6 +508,7 @@ socket_connect_one( conn_t *sock )
 			return;
 		}
 		conf_notifier( &sock->notify, 0, POLLOUT );
+		socket_expect_read( sock, 1 );
 		sock->state = SCK_CONNECTING;
 		info( "\v\n" );
 		return;
@@ -491,10 +518,9 @@ socket_connect_one( conn_t *sock )
 }
 
 static void
-socket_connect_failed( conn_t *conn )
+socket_connect_next( conn_t *conn )
 {
 	sys_error( "Cannot connect to %s", conn->name );
-	socket_close_internal( conn );
 	free( conn->name );
 	conn->name = 0;
 #ifdef HAVE_IPV6
@@ -506,18 +532,27 @@ socket_connect_failed( conn_t *conn )
 }
 
 static void
+socket_connect_failed( conn_t *conn )
+{
+	socket_close_internal( conn );
+	socket_connect_next( conn );
+}
+
+static void
 socket_connected( conn_t *conn )
 {
 #ifdef HAVE_IPV6
 	freeaddrinfo( conn->addrs );
+	conn->addrs = 0;
 #endif
 	conf_notifier( &conn->notify, 0, POLLIN );
+	socket_expect_read( conn, 0 );
 	conn->state = SCK_READY;
 	conn->callbacks.connect( 1, conn->callback_aux );
 }
 
 static void
-socket_connect_bail( conn_t *conn )
+socket_cleanup_names( conn_t *conn )
 {
 #ifdef HAVE_IPV6
 	if (conn->addrs) {
@@ -527,6 +562,12 @@ socket_connect_bail( conn_t *conn )
 #endif
 	free( conn->name );
 	conn->name = 0;
+}
+
+static void
+socket_connect_bail( conn_t *conn )
+{
+	socket_cleanup_names( conn );
 	conn->callbacks.connect( 0, conn->callback_aux );
 }
 
@@ -537,8 +578,7 @@ socket_close( conn_t *sock )
 {
 	if (sock->fd >= 0)
 		socket_close_internal( sock );
-	free( sock->name );
-	sock->name = 0;
+	socket_cleanup_names( sock );
 #ifdef HAVE_LIBSSL
 	if (sock->ssl) {
 		SSL_free( sock->ssl );
@@ -582,6 +622,8 @@ do_read( conn_t *sock, char *buf, int len )
 	int n;
 
 	assert( sock->fd >= 0 );
+	if (pending_wakeup( &sock->fd_timeout ))
+		conf_wakeup( &sock->fd_timeout, sock->conf->timeout );
 #ifdef HAVE_LIBSSL
 	if (sock->ssl) {
 		if ((n = ssl_return( "read from", sock, SSL_read( sock->ssl, buf, len ) )) <= 0)
@@ -619,8 +661,10 @@ socket_fill_z( conn_t *sock )
 	sock->in_z->next_out = (unsigned char *)buf;
 
 	ret = inflate( sock->in_z, Z_SYNC_FLUSH );
-	if (ret != Z_OK && ret != Z_STREAM_END) {
-		error( "Error decompressing data from %s: %s\n", sock->name, sock->in_z->msg );
+	/* Z_BUF_ERROR happens here when the previous call both consumed
+	 * all input and exactly filled up the output buffer. */
+	if (ret != Z_OK && ret != Z_BUF_ERROR && ret != Z_STREAM_END) {
+		error( "Error decompressing data from %s: %s\n", sock->name, z_err_msg( ret, sock->in_z ) );
 		socket_fail( sock );
 		return;
 	}
@@ -663,6 +707,13 @@ socket_fill( conn_t *sock )
 		sock->bytes += len;
 		sock->read_callback( sock->callback_aux );
 	}
+}
+
+void
+socket_expect_read( conn_t *conn, int expect )
+{
+	if (conn->conf->timeout > 0 && expect != pending_wakeup( &conn->fd_timeout ))
+		conf_wakeup( &conn->fd_timeout, expect ? conn->conf->timeout : -1 );
 }
 
 int
@@ -796,6 +847,7 @@ do_flush( conn_t *conn )
 		if (!conn->z_written)
 			return;
 		do {
+			int ret;
 			if (!bc) {
 				buf_avail = WRITE_CHUNK_SIZE;
 				bc = nfmalloc( offsetof(buff_chunk_t, data) + buf_avail );
@@ -805,8 +857,11 @@ do_flush( conn_t *conn )
 			conn->out_z->avail_in = 0;
 			conn->out_z->next_out = (uchar *)bc->data + bc->len;
 			conn->out_z->avail_out = buf_avail;
-			if (deflate( conn->out_z, Z_PARTIAL_FLUSH ) != Z_OK) {
-				error( "Fatal: Compression error: %s\n", conn->out_z->msg );
+			/* Z_BUF_ERROR cannot happen here, as zlib suppresses the error
+			 * both upon increasing the flush level (1st iteration) and upon
+			 * a no-op after the output buffer was full (later iterations). */
+			if ((ret = deflate( conn->out_z, Z_PARTIAL_FLUSH )) != Z_OK) {
+				error( "Fatal: Compression error: %s\n", z_err_msg( ret, conn->out_z ) );
 				abort();
 			}
 			bc->len = (char *)conn->out_z->next_out - bc->data;
@@ -868,12 +923,15 @@ socket_write( conn_t *conn, conn_iovec_t *iov, int iovcnt )
 			len = iov->len - offset;
 #ifdef HAVE_LIBZ
 			if (conn->out_z) {
+				int ret;
 				conn->out_z->next_in = (uchar *)iov->buf + offset;
 				conn->out_z->avail_in = len;
 				conn->out_z->next_out = (uchar *)bc->data + bc->len;
 				conn->out_z->avail_out = buf_avail;
-				if (deflate( conn->out_z, Z_NO_FLUSH ) != Z_OK) {
-					error( "Fatal: Compression error: %s\n", conn->out_z->msg );
+				/* Z_BUF_ERROR is impossible here, as the input buffer always has data,
+				 * and the output buffer always has space. */
+				if ((ret = deflate( conn->out_z, Z_NO_FLUSH )) != Z_OK) {
+					error( "Fatal: Compression error: %s\n", z_err_msg( ret, conn->out_z ) );
 					abort();
 				}
 				bc->len = (char *)conn->out_z->next_out - bc->data;
@@ -968,6 +1026,20 @@ socket_fake_cb( void *aux )
 	/* If no writes are ongoing, start writing now. */
 	if (!conn->writing)
 		do_queued_write( conn );
+}
+
+static void
+socket_timeout_cb( void *aux )
+{
+	conn_t *conn = (conn_t *)aux;
+
+	if (conn->state == SCK_CONNECTING) {
+		errno = ETIMEDOUT;
+		socket_connect_failed( conn );
+	} else {
+		error( "Socket error on %s: timeout.\n", conn->name );
+		socket_fail( conn );
+	}
 }
 
 #ifdef HAVE_LIBZ

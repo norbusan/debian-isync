@@ -64,14 +64,14 @@ struct option Opts[] = {
 };
 #endif
 
-static void
+static void ATTR_NORETURN
 version( void )
 {
 	puts( PACKAGE " " VERSION );
 	exit( 0 );
 }
 
-static void
+static void ATTR_NORETURN
 usage( int code )
 {
 	fputs(
@@ -194,13 +194,13 @@ main( int argc, char **argv )
 		switch (i) {
 		case 'W':
 			outconfig = optarg;
-			/* plopp */
+			FALLTHROUGH
 		case 'w':
 			writeout = 1;
 			break;
 		case 'l':
 			list = 1;
-			/* plopp */
+			FALLTHROUGH
 		case 'a':
 			all = 1;
 			break;
@@ -254,7 +254,6 @@ main( int argc, char **argv )
 			if (!strncasecmp( "imaps:", optarg, 6 )) {
 				global.use_imaps = 1;
 				global.port = 993;
-				global.use_sslv2 = 0;
 				global.use_sslv3 = 1;
 				optarg += 6;
 			}

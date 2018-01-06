@@ -222,14 +222,11 @@ memrchr( const void *s, int c, size_t n )
 #endif
 
 #ifndef HAVE_STRNLEN
-int
+size_t
 strnlen( const char *str, size_t maxlen )
 {
-	size_t len;
-
-	/* It's tempting to use memchr(), but it's allowed to read past the end of the actual string. */
-	for (len = 0; len < maxlen && str[len]; len++) {}
-	return len;
+	const char *estr = memchr( str, 0, maxlen );
+	return estr ? (size_t)(estr - str) : maxlen;
 }
 
 #endif
@@ -522,7 +519,15 @@ map_name( const char *arg, char **result, int reserve, const char *in, const cha
 		for (ll = 0; ll < inl; ll++)
 			if (arg[i + ll] != in[ll])
 				goto rnexti;
+#ifdef __GNUC__
+# pragma GCC diagnostic push
+/* https://gcc.gnu.org/bugzilla/show_bug.cgi?id=42145 */
+# pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 		memcpy( p, out, outl );
+#ifdef __GNUC__
+# pragma GCC diagnostic pop
+#endif
 		p += outl;
 		i += inl;
 		continue;
@@ -534,15 +539,32 @@ map_name( const char *arg, char **result, int reserve, const char *in, const cha
 }
 
 static int
-compare_ints( const void *l, const void *r )
+compare_uints( const void *l, const void *r )
 {
-	return *(int *)l - *(int *)r;
+	return *(uint *)l - *(uint *)r;
 }
 
 void
-sort_ints( int *arr, int len )
+sort_uint_array( uint_array_t array )
 {
-	qsort( arr, len, sizeof(int), compare_ints );
+	qsort( array.data, array.size, sizeof(uint), compare_uints );
+}
+
+int
+find_uint_array( uint_array_t array, uint value )
+{
+	int bot = 0, top = array.size - 1;
+	while (bot <= top) {
+		int i = (bot + top) / 2;
+		uint elt = array.data[i];
+		if (elt == value)
+			return 1;
+		if (elt < value)
+			bot = i + 1;
+		else
+			top = i - 1;
+	}
+	return 0;
 }
 
 
@@ -704,17 +726,10 @@ wipe_notifier( notifier_t *sn )
 #endif
 }
 
-static int nowvalid;
-static time_t now;
-
 static time_t
 get_now( void )
 {
-	if (!nowvalid) {
-		nowvalid = 1;
-		return time( &now );
-	}
-	return now;
+	return time( 0 );
 }
 
 static list_head_t timers = { &timers, &timers };
@@ -743,12 +758,12 @@ conf_wakeup( wakeup_t *tmr, int to )
 		if (tmr->links.next)
 			list_unlink( &tmr->links );
 	} else {
-		time_t timeout = get_now() + to;
-		tmr->timeout = timeout;
+		time_t timeout = to;
 		if (!to) {
 			/* We always prepend null timers, to cluster related events. */
 			succ = timers.next;
 		} else {
+			timeout += get_now();
 			/* We start at the end in the expectation that the newest timer is likely to fire last
 			 * (which will be true only if all timeouts are equal, but it's an as good guess as any). */
 			for (succ = &timers; (head = succ->prev) != &timers; succ = head) {
@@ -757,6 +772,7 @@ conf_wakeup( wakeup_t *tmr, int to )
 			}
 			assert( head != &tmr->links );
 		}
+		tmr->timeout = timeout;
 		if (succ != &tmr->links) {
 			if (tmr->links.next)
 				list_unlink( &tmr->links );
@@ -764,11 +780,6 @@ conf_wakeup( wakeup_t *tmr, int to )
 		}
 	}
 }
-
-#define shifted_bit(in, from, to) \
-	(((uint)(in) & from) \
-		/ (from > to ? from / to : 1) \
-		* (to > from ? to / from : 1))
 
 static void
 event_wait( void )
@@ -779,16 +790,15 @@ event_wait( void )
 
 #ifdef HAVE_SYS_POLL_H
 	int timeout = -1;
-	nowvalid = 0;
 	if ((head = timers.next) != &timers) {
 		wakeup_t *tmr = (wakeup_t *)head;
-		int delta = tmr->timeout - get_now();
-		if (delta <= 0) {
+		time_t delta = tmr->timeout;
+		if (!delta || (delta -= get_now()) <= 0) {
 			list_unlink( head );
 			tmr->cb( tmr->aux );
 			return;
 		}
-		timeout = delta * 1000;
+		timeout = (int)delta * 1000;
 	}
 	switch (poll( pollfds, npolls, timeout )) {
 	case 0:
@@ -816,11 +826,10 @@ event_wait( void )
 	fd_set rfds, wfds, efds;
 	int fd;
 
-	nowvalid = 0;
 	if ((head = timers.next) != &timers) {
 		wakeup_t *tmr = (wakeup_t *)head;
-		int delta = tmr->timeout - get_now();
-		if (delta <= 0) {
+		time_t delta = tmr->timeout;
+		if (!delta || (delta -= get_now()) <= 0) {
 			list_unlink( head );
 			tmr->cb( tmr->aux );
 			return;

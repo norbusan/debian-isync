@@ -35,7 +35,6 @@ typedef struct ssl_ctx_st SSL_CTX;
 typedef struct stack_st _STACK;
 
 enum {
-	SSLv2 = 1,
 	SSLv3 = 2,
 	TLSv1 = 4,
 	TLSv1_1 = 8,
@@ -43,12 +42,15 @@ enum {
 };
 #endif
 
-typedef struct server_conf {
+typedef struct {
 	char *tunnel;
 	char *host;
 	int port;
+	int timeout;
 #ifdef HAVE_LIBSSL
 	char *cert_file;
+	char *client_certfile;
+	char *client_keyfile;
 	char system_certs;
 	char ssl_versions;
 
@@ -97,6 +99,7 @@ typedef struct {
 
 	notifier_t notify;
 	wakeup_t fd_fake;
+	wakeup_t fd_timeout;
 
 	/* writing */
 	buff_chunk_t *append_buf; /* accumulating buffer */
@@ -139,10 +142,11 @@ void socket_connect( conn_t *conn, void (*cb)( int ok, void *aux ) );
 void socket_start_tls(conn_t *conn, void (*cb)( int ok, void *aux ) );
 void socket_start_deflate( conn_t *conn );
 void socket_close( conn_t *sock );
+void socket_expect_read( conn_t *sock, int expect );
 int socket_read( conn_t *sock, char *buf, int len ); /* never waits */
 char *socket_read_line( conn_t *sock ); /* don't free return value; never waits */
 typedef enum { KeepOwn = 0, GiveOwn } ownership_t;
-typedef struct conn_iovec {
+typedef struct {
 	char *buf;
 	int len;
 	ownership_t takeOwn;
