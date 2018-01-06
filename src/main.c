@@ -1,7 +1,7 @@
 /*
  * mbsync - mailbox synchronizer
  * Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>
- * Copyright (C) 2002-2006,2010-2012 Oswald Buddenhagen <ossi@users.sf.net>
+ * Copyright (C) 2002-2006,2010-2017 Oswald Buddenhagen <ossi@users.sf.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include <sys/wait.h>
 
 int DFlags;
+int JLimit;
 int UseFSync = 1;
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(__CYGWIN__)
 char FieldDelimiter = ';';
@@ -51,20 +52,20 @@ int new_total[2], new_done[2];
 int flags_total[2], flags_done[2];
 int trash_total[2], trash_done[2];
 
-static void
+static void ATTR_NORETURN
 version( void )
 {
 	puts( PACKAGE " " VERSION );
 	exit( 0 );
 }
 
-static void
+static void ATTR_NORETURN
 usage( int code )
 {
 	fputs(
 PACKAGE " " VERSION " - mailbox synchronizer\n"
 "Copyright (C) 2000-2002 Michael R. Elkins <me@mutt.org>\n"
-"Copyright (C) 2002-2006,2008,2010-2012 Oswald Buddenhagen <ossi@users.sf.net>\n"
+"Copyright (C) 2002-2006,2008,2010-2017 Oswald Buddenhagen <ossi@users.sf.net>\n"
 "Copyright (C) 2004 Theodore Ts'o <tytso@mit.edu>\n"
 "usage:\n"
 " " EXE " [flags] {{channel[:box,...]|group} ...|-a}\n"
@@ -91,9 +92,29 @@ PACKAGE " " VERSION " - mailbox synchronizer\n"
 "\nSupported mailbox formats are: IMAP4rev1, Maildir\n"
 "\nCompile time options:\n"
 #ifdef HAVE_LIBSSL
-"  +HAVE_LIBSSL\n"
+"  +HAVE_LIBSSL"
 #else
-"  -HAVE_LIBSSL\n"
+"  -HAVE_LIBSSL"
+#endif
+#ifdef HAVE_LIBSASL
+" +HAVE_LIBSASL"
+#else
+" -HAVE_LIBSASL"
+#endif
+#ifdef HAVE_LIBZ
+" +HAVE_LIBZ"
+#else
+" -HAVE_LIBZ"
+#endif
+#ifdef USE_DB
+" +USE_DB"
+#else
+" -USE_DB"
+#endif
+#ifdef HAVE_IPV6
+" +HAVE_IPV6\n"
+#else
+" -HAVE_IPV6\n"
 #endif
 	, code ? stderr : stdout );
 	exit( code );
@@ -361,6 +382,7 @@ typedef struct {
 	store_t *ctx[2];
 	chan_ent_t *chanptr;
 	box_ent_t *boxptr;
+	string_list_t *boxes[2];
 	char *names[2];
 	int ret, all, list, state[2];
 	char done, skip, cben;
@@ -441,6 +463,10 @@ main( int argc, char **argv )
 						op = VERBOSE | DEBUG_ALL;
 					else if (!strcmp( opt, "-crash" ))
 						op = DEBUG_CRASH;
+					else if (!strcmp( opt, "-driver" ))
+						op = VERBOSE | DEBUG_DRV;
+					else if (!strcmp( opt, "-driver-all" ))
+						op = VERBOSE | DEBUG_DRV | DEBUG_DRV_ALL;
 					else if (!strcmp( opt, "-maildir" ))
 						op = VERBOSE | DEBUG_MAILDIR;
 					else if (!strcmp( opt, "-main" ))
@@ -573,7 +599,7 @@ main( int argc, char **argv )
 			goto cop;
 		case 'F':
 			cops |= XOP_PULL|XOP_PUSH;
-			/* fallthrough */
+			FALLTHROUGH
 		case '0':
 			ops[M] |= XOP_HAVE_TYPE;
 			break;
@@ -627,6 +653,12 @@ main( int argc, char **argv )
 				case 'C':
 					op |= DEBUG_CRASH;
 					break;
+				case 'd':
+					op |= DEBUG_DRV | VERBOSE;
+					break;
+				case 'D':
+					op |= DEBUG_DRV | DEBUG_DRV_ALL | VERBOSE;
+					break;
 				case 'm':
 					op |= DEBUG_MAILDIR | VERBOSE;
 					break;
@@ -653,6 +685,7 @@ main( int argc, char **argv )
 			break;
 		case 'J':
 			DFlags |= KEEPJOURNAL;
+			JLimit = strtol( ochar, &ochar, 10 );
 			break;
 		case 'Z':
 			DFlags |= ZERODELAY;
@@ -727,11 +760,34 @@ main( int argc, char **argv )
 }
 
 #define ST_FRESH     0
-#define ST_OPEN      1
-#define ST_CLOSED    2
+#define ST_CONNECTED 1
+#define ST_OPEN      2
+#define ST_CANCELING 3
+#define ST_CLOSED    4
 
-static void store_opened( store_t *ctx, void *aux );
-static void store_listed( int sts, void *aux );
+static void
+cancel_prep_done( void *aux )
+{
+	MVARS(aux)
+
+	mvars->drv[t]->free_store( mvars->ctx[t] );
+	mvars->state[t] = ST_CLOSED;
+	sync_chans( mvars, E_OPEN );
+}
+
+static void
+store_bad( void *aux )
+{
+	MVARS(aux)
+
+	mvars->drv[t]->cancel_store( mvars->ctx[t] );
+	mvars->state[t] = ST_CLOSED;
+	mvars->ret = mvars->skip = 1;
+	sync_chans( mvars, E_OPEN );
+}
+
+static void store_connected( int sts, void *aux );
+static void store_listed( int sts, string_list_t *boxes, void *aux );
 static int sync_listed_boxes( main_vars_t *mvars, box_ent_t *mbox );
 static void done_sync_2_dyn( int sts, void *aux );
 static void done_sync( int sts, void *aux );
@@ -757,7 +813,7 @@ sync_chans( main_vars_t *mvars, int ent )
 		info( "Channel %s\n", mvars->chan->name );
 		mvars->skip = mvars->cben = 0;
 		for (t = 0; t < 2; t++) {
-			int st = mvars->chan->stores[t]->driver->fail_state( mvars->chan->stores[t] );
+			int st = mvars->chan->stores[t]->driver->get_fail_state( mvars->chan->stores[t] );
 			if (st != FAIL_TEMP) {
 				info( "Skipping due to %sfailed %s store %s.\n",
 				      (st == FAIL_WAIT) ? "temporarily " : "", str_ms[t], mvars->chan->stores[t]->name );
@@ -767,21 +823,28 @@ sync_chans( main_vars_t *mvars, int ent )
 		if (mvars->skip)
 			goto next2;
 		mvars->state[M] = mvars->state[S] = ST_FRESH;
-		if (mvars->chan->stores[M]->driver->flags & mvars->chan->stores[S]->driver->flags & DRV_VERBOSE)
+		if ((DFlags & DEBUG_DRV) || (mvars->chan->stores[M]->driver->get_caps( 0 ) & mvars->chan->stores[S]->driver->get_caps( 0 ) & DRV_VERBOSE))
 			labels[M] = "M: ", labels[S] = "S: ";
 		else
 			labels[M] = labels[S] = "";
+		for (t = 0; t < 2; t++) {
+			driver_t *drv = mvars->chan->stores[t]->driver;
+			store_t *ctx = drv->alloc_store( mvars->chan->stores[t], labels[t] );
+			if (DFlags & DEBUG_DRV) {
+				drv = &proxy_driver;
+				ctx = proxy_alloc_store( ctx, labels[t] );
+			}
+			mvars->drv[t] = drv;
+			mvars->ctx[t] = ctx;
+			drv->set_bad_callback( ctx, store_bad, AUX );
+		}
 		for (t = 0; ; t++) {
 			info( "Opening %s store %s...\n", str_ms[t], mvars->chan->stores[t]->name );
-			mvars->drv[t] = mvars->chan->stores[t]->driver;
-			mvars->drv[t]->open_store( mvars->chan->stores[t], labels[t], store_opened, AUX );
-			if (t)
+			mvars->drv[t]->connect_store( mvars->ctx[t], store_connected, AUX );
+			if (t || mvars->skip)
 				break;
-			if (mvars->skip) {
-				mvars->state[1] = ST_CLOSED;
-				break;
-			}
 		}
+
 		mvars->cben = 1;
 	  opened:
 		if (mvars->skip)
@@ -791,8 +854,8 @@ sync_chans( main_vars_t *mvars, int ent )
 
 		if (!mvars->chanptr->boxlist && mvars->chan->patterns) {
 			mvars->chanptr->boxlist = 2;
-			boxes[M] = filter_boxes( mvars->ctx[M]->boxes, mvars->chan->boxes[M], mvars->chan->patterns );
-			boxes[S] = filter_boxes( mvars->ctx[S]->boxes, mvars->chan->boxes[S], mvars->chan->patterns );
+			boxes[M] = filter_boxes( mvars->boxes[M], mvars->chan->boxes[M], mvars->chan->patterns );
+			boxes[S] = filter_boxes( mvars->boxes[S], mvars->chan->boxes[S], mvars->chan->patterns );
 			mboxapp = &mvars->chanptr->boxes;
 			for (mb = sb = 0; ; ) {
 				char *mname = boxes[M] ? boxes[M][mb] : 0;
@@ -856,13 +919,22 @@ sync_chans( main_vars_t *mvars, int ent )
 		}
 
 	  next:
-		for (t = 0; t < 2; t++)
-			if (mvars->state[t] == ST_OPEN) {
-				mvars->drv[t]->disown_store( mvars->ctx[t] );
+		mvars->cben = 0;
+		for (t = 0; t < 2; t++) {
+			free_string_list( mvars->boxes[t] );
+			mvars->boxes[t] = 0;
+			if (mvars->state[t] == ST_FRESH) {
+				/* An unconnected store may be only cancelled. */
 				mvars->state[t] = ST_CLOSED;
+				mvars->drv[t]->cancel_store( mvars->ctx[t] );
+			} else if (mvars->state[t] == ST_CONNECTED || mvars->state[t] == ST_OPEN) {
+				mvars->state[t] = ST_CANCELING;
+				mvars->drv[t]->cancel_cmds( mvars->ctx[t], cancel_prep_done, AUX );
 			}
+		}
+		mvars->cben = 1;
 		if (mvars->state[M] != ST_CLOSED || mvars->state[S] != ST_CLOSED) {
-			mvars->skip = mvars->cben = 1;
+			mvars->skip = 1;
 			return;
 		}
 		if (mvars->chanptr->boxlist == 2) {
@@ -885,104 +957,92 @@ sync_chans( main_vars_t *mvars, int ent )
 }
 
 static void
-store_bad( void *aux )
-{
-	MVARS(aux)
-
-	mvars->drv[t]->cancel_store( mvars->ctx[t] );
-	mvars->ret = mvars->skip = 1;
-	mvars->state[t] = ST_CLOSED;
-	sync_chans( mvars, E_OPEN );
-}
-
-static void
-store_opened( store_t *ctx, void *aux )
+store_connected( int sts, void *aux )
 {
 	MVARS(aux)
 	string_list_t *cpat;
-	int flags;
-
-	if (!ctx) {
-		mvars->ret = mvars->skip = 1;
-		mvars->state[t] = ST_CLOSED;
-		sync_chans( mvars, E_OPEN );
-		return;
-	}
-	mvars->ctx[t] = ctx;
-	if (!mvars->skip && !mvars->chanptr->boxlist && mvars->chan->patterns && !ctx->listed) {
-		for (flags = 0, cpat = mvars->chan->patterns; cpat; cpat = cpat->next) {
-			const char *pat = cpat->string;
-			if (*pat != '!') {
-				char buf[8];
-				int bufl = snprintf( buf, sizeof(buf), "%s%s", nz( mvars->chan->boxes[t], "" ), pat );
-				/* Partial matches like "INB*" or even "*" are not considered,
-				 * except implicity when the INBOX lives under Path. */
-				if (starts_with( buf, bufl, "INBOX", 5 )) {
-					char c = buf[5];
-					if (!c) {
-						/* User really wants the INBOX. */
-						flags |= LIST_INBOX;
-					} else if (c == '/') {
-						/* Flattened sub-folders of INBOX actually end up in Path. */
-						if (ctx->conf->flat_delim)
-							flags |= LIST_PATH;
-						else
-							flags |= LIST_INBOX;
-					} else {
-						/* User may not want the INBOX after all ... */
-						flags |= LIST_PATH;
-						/* ... but maybe he does.
-						 * The flattened sub-folder case is implicitly covered by the previous line. */
-						if (c == '*' || c == '%')
-							flags |= LIST_INBOX;
-					}
-				} else {
-					flags |= LIST_PATH;
-				}
-				debug( "pattern '%s' (effective '%s'): %sPath, %sINBOX\n",
-				       pat, buf, (flags & LIST_PATH) ? "" : "no ",  (flags & LIST_INBOX) ? "" : "no ");
-			}
-		}
-		set_bad_callback( ctx, store_bad, AUX );
-		mvars->drv[t]->list_store( ctx, flags, store_listed, AUX );
-	} else {
-		mvars->state[t] = ST_OPEN;
-		sync_chans( mvars, E_OPEN );
-	}
-}
-
-static void
-store_listed( int sts, void *aux )
-{
-	MVARS(aux)
-	string_list_t **box, *bx;
+	int cflags;
 
 	switch (sts) {
 	case DRV_CANCELED:
 		return;
 	case DRV_OK:
-		mvars->ctx[t]->listed = 1;
-		if (DFlags & DEBUG_MAIN) {
-			debug( "got mailbox list from %s:\n", str_ms[t] );
-			for (bx = mvars->ctx[t]->boxes; bx; bx = bx->next)
-				debug( "  %s\n", bx->string );
+		if (!mvars->skip && !mvars->chanptr->boxlist && mvars->chan->patterns) {
+			for (cflags = 0, cpat = mvars->chan->patterns; cpat; cpat = cpat->next) {
+				const char *pat = cpat->string;
+				if (*pat != '!') {
+					char buf[8];
+					int bufl = snprintf( buf, sizeof(buf), "%s%s", nz( mvars->chan->boxes[t], "" ), pat );
+					int flags = 0;
+					/* Partial matches like "INB*" or even "*" are not considered,
+					 * except implicity when the INBOX lives under Path. */
+					if (starts_with( buf, bufl, "INBOX", 5 )) {
+						char c = buf[5];
+						if (!c) {
+							/* User really wants the INBOX. */
+							flags |= LIST_INBOX;
+						} else if (c == '/') {
+							/* Flattened sub-folders of INBOX actually end up in Path. */
+							if (mvars->ctx[t]->conf->flat_delim)
+								flags |= LIST_PATH;
+							else
+								flags |= LIST_INBOX;
+						} else if (c == '*' || c == '%') {
+							/* It can be both INBOX and Path, but don't require Path to be configured. */
+							flags |= LIST_INBOX | LIST_PATH_MAYBE;
+						} else {
+							/* It's definitely not the INBOX. */
+							flags |= LIST_PATH;
+						}
+					} else {
+						flags |= LIST_PATH;
+					}
+					debug( "pattern '%s' (effective '%s'): %sPath, %sINBOX\n",
+					       pat, buf, (flags & LIST_PATH) ? "" : "no ",  (flags & LIST_INBOX) ? "" : "no ");
+					cflags |= flags;
+				}
+			}
+			mvars->state[t] = ST_CONNECTED;
+			mvars->drv[t]->list_store( mvars->ctx[t], cflags, store_listed, AUX );
+			return;
 		}
-		if (mvars->ctx[t]->conf->flat_delim) {
-			for (box = &mvars->ctx[t]->boxes; *box; box = &(*box)->next) {
+		mvars->state[t] = ST_OPEN;
+		break;
+	default:
+		mvars->ret = mvars->skip = 1;
+		mvars->state[t] = ST_OPEN;
+		break;
+	}
+	sync_chans( mvars, E_OPEN );
+}
+
+static void
+store_listed( int sts, string_list_t *boxes, void *aux )
+{
+	MVARS(aux)
+	string_list_t *box;
+
+	switch (sts) {
+	case DRV_CANCELED:
+		return;
+	case DRV_OK:
+		for (box = boxes; box; box = box->next) {
+			if (mvars->ctx[t]->conf->flat_delim) {
 				string_list_t *nbox;
-				if (map_name( (*box)->string, (char **)&nbox, offsetof(string_list_t, string), mvars->ctx[t]->conf->flat_delim, "/" ) < 0) {
-					error( "Error: flattened mailbox name '%s' contains canonical hierarchy delimiter\n", (*box)->string );
+				if (map_name( box->string, (char **)&nbox, offsetof(string_list_t, string), mvars->ctx[t]->conf->flat_delim, "/" ) < 0) {
+					error( "Error: flattened mailbox name '%s' contains canonical hierarchy delimiter\n", box->string );
 					mvars->ret = mvars->skip = 1;
 				} else {
-					nbox->next = (*box)->next;
-					free( *box );
-					*box = nbox;
+					nbox->next = mvars->boxes[t];
+					mvars->boxes[t] = nbox;
 				}
+			} else {
+				add_string_list( &mvars->boxes[t], box->string );
 			}
 		}
 		if (mvars->ctx[t]->conf->map_inbox) {
 			debug( "adding mapped inbox to %s: %s\n", str_ms[t], mvars->ctx[t]->conf->map_inbox );
-			add_string_list( &mvars->ctx[t]->boxes, mvars->ctx[t]->conf->map_inbox );
+			add_string_list( &mvars->boxes[t], mvars->ctx[t]->conf->map_inbox );
 		}
 		break;
 	default:
@@ -1042,8 +1102,6 @@ done_sync( int sts, void *aux )
 				mvars->state[M] = ST_CLOSED;
 			if (sts & SYNC_BAD(S))
 				mvars->state[S] = ST_CLOSED;
-			mvars->skip = 1;
-		} else if (sts & SYNC_FAIL_ALL) {
 			mvars->skip = 1;
 		}
 	}

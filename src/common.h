@@ -39,14 +39,25 @@ typedef unsigned int uint;
 #define __stringify(x) #x
 #define stringify(x) __stringify(x)
 
+#define shifted_bit(in, from, to) \
+	(((uint)(in) / (from > to ? from / to : 1) * (to > from ? to / from : 1)) & to)
+
 #if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4)
 # define ATTR_UNUSED __attribute__((unused))
 # define ATTR_NORETURN __attribute__((noreturn))
 # define ATTR_PRINTFLIKE(fmt,var) __attribute__((format(printf,fmt,var)))
+# define ATTR_PACKED(ref) __attribute__((packed,aligned(sizeof(ref))))
 #else
 # define ATTR_UNUSED
 # define ATTR_NORETURN
 # define ATTR_PRINTFLIKE(fmt,var)
+# define ATTR_PACKED(ref)
+#endif
+
+#if __GNUC__ >= 7
+# define FALLTHROUGH __attribute__((fallthrough));
+#else
+# define FALLTHROUGH
 #endif
 
 #ifdef __GNUC__
@@ -65,7 +76,9 @@ typedef unsigned int uint;
 #define DEBUG_NET_ALL   0x08
 #define DEBUG_SYNC      0x10
 #define DEBUG_MAIN      0x20
-#define DEBUG_ALL       (0xFF & ~DEBUG_NET_ALL)
+#define DEBUG_DRV       0x40
+#define DEBUG_DRV_ALL   0x80
+#define DEBUG_ALL       (0xFF & ~(DEBUG_NET_ALL | DEBUG_DRV_ALL))
 #define QUIET           0x100
 #define VERYQUIET       0x200
 #define PROGRESS        0x400
@@ -74,6 +87,7 @@ typedef unsigned int uint;
 #define ZERODELAY       0x2000
 
 extern int DFlags;
+extern int JLimit;
 extern int UseFSync;
 extern char FieldDelimiter;
 
@@ -105,7 +119,7 @@ void flushn( void );
 typedef struct string_list {
 	struct string_list *next;
 	char string[1];
-} string_list_t;
+} ATTR_PACKED(void *) string_list_t;
 
 void add_string_list_n( string_list_t **list, const char *str, int len );
 void add_string_list( string_list_t **list, const char *str );
@@ -113,6 +127,9 @@ void free_string_list( string_list_t *list );
 
 #ifndef HAVE_MEMRCHR
 void *memrchr( const void *s, int c, size_t n );
+#endif
+#ifndef HAVE_STRNLEN
+size_t strnlen( const char *str, size_t maxlen );
 #endif
 
 int starts_with( const char *str, int strl, const char *cmp, int cmpl );
@@ -137,7 +154,35 @@ char *expand_strdup( const char *s );
 
 int map_name( const char *arg, char **result, int reserve, const char *in, const char *out );
 
-void sort_ints( int *arr, int len );
+#define DEFINE_ARRAY_TYPE(T) \
+	typedef struct { \
+		T *data; \
+		int size; \
+	} ATTR_PACKED(T *) T##_array_t; \
+	typedef struct { \
+		T##_array_t array; \
+		int alloc; \
+	} ATTR_PACKED(T *) T##_array_alloc_t; \
+	static INLINE T *T##_array_append( T##_array_alloc_t *arr ) \
+	{ \
+		if (arr->array.size == arr->alloc) { \
+			arr->alloc = arr->alloc * 2 + 100; \
+			arr->array.data = nfrealloc( arr->array.data, arr->alloc * sizeof(T) ); \
+		} \
+		return &arr->array.data[arr->array.size++]; \
+	}
+
+#define ARRAY_INIT(arr) \
+	do { (arr)->array.data = 0; (arr)->array.size = (arr)->alloc = 0; } while (0)
+
+#define ARRAY_SQUEEZE(arr) \
+	do { \
+		(arr)->data = nfrealloc( (arr)->data, (arr)->size * sizeof((arr)->data[0]) ); \
+	} while (0)
+
+DEFINE_ARRAY_TYPE(uint)
+void sort_uint_array( uint_array_t array );
+int find_uint_array( const uint_array_t array, uint value );
 
 void arc4_init( void );
 uchar arc4_getbyte( void );

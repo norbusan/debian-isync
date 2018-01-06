@@ -34,6 +34,12 @@
 # define ATTR_PRINTFLIKE(fmt,var)
 #endif
 
+#if __GNUC__ >= 7
+# define FALLTHROUGH __attribute__((fallthrough));
+#else
+# define FALLTHROUGH
+#endif
+
 typedef struct config {
 	struct config *next;
 
@@ -49,7 +55,6 @@ typedef struct config {
 	unsigned int require_cram:1;
 	unsigned int require_ssl:1;
 	unsigned int use_imaps:1;
-	unsigned int use_sslv2:1;
 	unsigned int use_sslv3:1;
 	unsigned int use_tlsv1:1;
 	char *cert_file;
