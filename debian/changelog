@@ -118,7 +118,7 @@ isync (1.0.4-1) unstable; urgency=low
     - Accept empty "* SEARCH" response. (Closes: #413336)
     - Quote user name in generated config. (Closes: #456783)
   * Explain the isync->mbsync change in the package description.
-    (Closes: #430648) 
+    (Closes: #430648)
   * Fix the debian/watch file that lacked the version and action fields.
   * Disable the upstream "deb-clean" stuff in the top-level Makefile, as
     in breaks cleaning the build directory.
@@ -227,7 +227,7 @@ isync (0.9.2-1) unstable; urgency=low
     - A few prinf converted to info (disabled with -q).
     - A few other printf converted to warn (disabled with -q -q) to be
       able to disable the warning when SSL is not available.
-      (Closes: #228086) 
+      (Closes: #228086)
     - Update the manpage accordingly (about -q).
     - Improve the manpage (about using isync with mutt).
   * Add Theodore Y. Ts'o as a co-maintainter.
@@ -308,7 +308,7 @@ isync (0.8-2) unstable; urgency=low
 isync (0.8-1) unstable; urgency=low
 
   * New upstream release. Closes: #134080
-  
+
   **WARNING**
     You need to remove all the messages in your local folder if you were
     previously using another version of isync or else you will end up with
