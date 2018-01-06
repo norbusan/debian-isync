@@ -6,7 +6,6 @@ Uploaders: Theodore Y. Ts'o <tytso@mit.edu>,
  Alessandro Ghedini <ghedo@debian.org>
 Standards-Version: 4.1.3
 Build-Depends: debhelper (>= 11),
- dh-autoreconf,
  libdb-dev,
  libsasl2-dev,
  libssl-dev,
