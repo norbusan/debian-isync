@@ -11,8 +11,8 @@ Build-Depends: debhelper (>= 11),
  libssl-dev,
  pkg-config,
  zlib1g-dev
-Vcs-Git: https://anonscm.debian.org/git/collab-maint/isync.git
-Vcs-Browser: https://anonscm.debian.org/gitweb/?p=collab-maint/isync.git
+Vcs-Git: https://salsa.debian.org/debian/isync.git
+Vcs-Browser: https://salsa.debian.org/debian/isync
 Homepage: http://isync.sourceforge.net/
 
 Package: isync
