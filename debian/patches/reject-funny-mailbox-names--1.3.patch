@@ -1,0 +1,68 @@
+>From 45e2bdc439a01974b6b990bfb8a8968192c3b721 Mon Sep 17 00:00:00 2001
+From: Oswald Buddenhagen <ossi@users.sf.net>
+Date: Sun, 14 Feb 2021 20:42:37 +0100
+Subject: [PATCH] CVE-2021-20247: reject funny mailbox names from IMAP LIST/LSUB
+
+in particular, '..' in the name could be used to escape the Path/Inbox
+of a Maildir Store, which could be exploited for stealing or deleting
+data, or staging a (mild) DoS attack.
+---
+ src/drv_imap.c | 31 ++++++++++++++++++++++++++++++-
+ 1 file changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/src/drv_imap.c b/src/drv_imap.c
+index 810479e..fbe2fed 100644
+--- a/src/drv_imap.c
++++ b/src/drv_imap.c
+@@ -1258,11 +1258,12 @@ static int
+ parse_list_rsp_p2( imap_store_t *ctx, list_t *list, char *cmd ATTR_UNUSED )
+ {
+ 	string_list_t *narg;
+-	char *arg;
++	char *arg, c;
+ 	int argl, l;
+ 
+ 	if (!is_atom( list )) {
+ 		error( "IMAP error: malformed LIST response\n" );
++	  listbad:
+ 		free_list( list );
+ 		return LIST_BAD;
+ 	}
+@@ -1302,6 +1303,34 @@ parse_list_rsp_p2( imap_store_t *ctx, list_t *list, char *cmd ATTR_UNUSED )
+ 		warn( "IMAP warning: ignoring mailbox %s (reserved character '/' in name)\n", arg );
+ 		goto skip;
+ 	}
++	// Validate the normalized name. Technically speaking, we could tolerate
++	// '//' and '/./', and '/../' being forbidden is a limitation of the Maildir
++	// driver, but there isn't really a legitimate reason for these being present.
++	for (const char *p = narg->string, *sp = p;;) {
++		if (!(c = *p) || c == '/') {
++			uint pcl = (uint)(p - sp);
++			if (!pcl) {
++				error( "IMAP warning: ignoring mailbox '%s' due to empty name component\n", narg->string );
++				free( narg );
++				goto skip;
++			}
++			if (pcl == 1 && sp[0] == '.') {
++				error( "IMAP warning: ignoring mailbox '%s' due to '.' component\n", narg->string );
++				free( narg );
++				goto skip;
++			}
++			if (pcl == 2 && sp[0] == '.' && sp[1] == '.') {
++				error( "IMAP error: LIST'd mailbox name '%s' contains '..' component - THIS MIGHT BE AN ATTEMPT TO HACK YOU!\n", narg->string );
++				free( narg );
++				goto listbad;
++			}
++			if (!c)
++				break;
++			sp = ++p;
++		} else {
++			++p;
++		}
++	}
+ 	narg->next = ctx->boxes;
+ 	ctx->boxes = narg;
+   skip:
+-- 
+2.29.2.2.g268056bf11.dirty
+
