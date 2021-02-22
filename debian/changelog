@@ -1,4 +1,6 @@
-isync (1.3.0-3) UNRELEASED; urgency=medium
+isync (1.3.0-2.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
 
   [ Ondřej Nový ]
   * d/watch: Use https protocol
@@ -7,7 +9,7 @@ isync (1.3.0-3) UNRELEASED; urgency=medium
   * reject funny mailbox names from IMAP LIST/LSUB (CVE-2021-20247)
     (Closes: #983351)
 
- -- Ondřej Nový <onovy@debian.org>  Mon, 01 Oct 2018 09:35:31 +0200
+ -- Salvatore Bonaccorso <carnil@debian.org>  Mon, 22 Feb 2021 21:09:21 +0100
 
 isync (1.3.0-2) unstable; urgency=medium
 
