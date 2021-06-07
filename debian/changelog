@@ -1,3 +1,10 @@
+isync (1.3.0-3) UNRELEASED; urgency=medium
+
+  * fix handling of unexpected APPENDUID response code (CVE-2021-3578)
+    (Closes: #989564)
+
+ -- Salvatore Bonaccorso <carnil@debian.org>  Mon, 07 Jun 2021 21:02:55 +0200
+
 isync (1.3.0-2.1) unstable; urgency=medium
 
   * Non-maintainer upload.
