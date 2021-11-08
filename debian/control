@@ -3,7 +3,7 @@ Section: mail
 Priority: optional
 Maintainer: Norbert Preining <norbert@preining.info>
 Standards-Version: 4.6.0
-Build-Depends: debhelper (>= 11),
+Build-Depends: debhelper-compat (= 12),
  libdb-dev,
  libsasl2-dev,
  libssl-dev,
