@@ -31,51 +31,65 @@ typedef struct driver driver_t;
 #define FAIL_WAIT   1  /* Retry after some time (if at all) */
 #define FAIL_FINAL  2  /* Don't retry until store reconfiguration */
 
-typedef struct store_conf {
-	struct store_conf *next;
-	char *name;
-	driver_t *driver;
-	const char *path; /* should this be here? its interpretation is driver-specific */
-	const char *flat_delim;
-	const char *map_inbox;
-	const char *trash;
-	int max_size; /* off_t is overkill */
+#define STORE_CONF \
+	struct store_conf *next; \
+	char *name; \
+	driver_t *driver; \
+	const char *flat_delim; \
+	const char *map_inbox; \
+	const char *trash; \
+	uint max_size;  /* off_t is overkill */ \
 	char trash_remote_new, trash_only_new;
+
+typedef struct store_conf {
+	STORE_CONF
 } store_conf_t;
 
 /* For message->flags */
-/* Keep the mailbox driver flag definitions in sync! */
+/* Keep the mailbox driver flag definitions in sync: */
+/* grep for MAILBOX_DRIVER_FLAG */
 /* The order is according to alphabetical maildir flag sort */
 #define F_DRAFT	     (1<<0) /* Draft */
 #define F_FLAGGED    (1<<1) /* Flagged */
-#define F_ANSWERED   (1<<2) /* Replied */
-#define F_SEEN       (1<<3) /* Seen */
-#define F_DELETED    (1<<4) /* Trashed */
-#define NUM_FLAGS 5
+#define F_FORWARDED  (1<<2) /* Passed */
+#define F_ANSWERED   (1<<3) /* Replied */
+#define F_SEEN       (1<<4) /* Seen */
+#define F_DELETED    (1<<5) /* Trashed */
+#define NUM_FLAGS 6
 
 /* For message->status */
 #define M_RECENT       (1<<0) /* unsyncable flag; maildir_* depend on this being 1<<0 */
 #define M_DEAD         (1<<1) /* expunged */
 #define M_FLAGS        (1<<2) /* flags fetched */
+// The following are only for IMAP FETCH response parsing
+#define M_DATE         (1<<3)
+#define M_SIZE         (1<<4)
+#define M_BODY         (1<<5)
+#define M_HEADER       (1<<6)
 
 #define TUIDL 12
 
-typedef struct message {
-	struct message *next;
-	struct sync_rec *srec;
-	char *msgid; /* owned */
-	/* string_list_t *keywords; */
-	int size; /* zero implies "not fetched" */
-	uint uid;
-	uchar flags, status;
+#define MESSAGE(message) \
+	message *next; \
+	struct sync_rec *srec; \
+	char *msgid;  /* owned */ \
+	/* string_list_t *keywords; */ \
+	uint size;  /* zero implies "not fetched" */ \
+	uint uid; \
+	uchar flags, status; \
 	char tuid[TUIDL];
+
+typedef struct message {
+	MESSAGE(struct message)
 } message_t;
 
-/* For opts, both in store and driver_t->select() */
-#define OPEN_OLD        (1<<0)
-#define OPEN_NEW        (1<<1)
-#define OPEN_FLAGS      (1<<2)
-#define OPEN_OLD_SIZE   (1<<3)
+// For driver_t->prepare_load_box(), which may amend the passed flags.
+// The drivers don't use the first two, but may set them if loading the
+// particular range is required to handle some other flag; note that these
+// ranges may overlap.
+#define OPEN_OLD        (1<<0)  // Paired messages *in* this store.
+#define OPEN_NEW        (1<<1)  // Messages (possibly) not yet propagated *from* this store.
+#define OPEN_FLAGS      (1<<2)  // Note that fetch_msg() gets the flags regardless.
 #define OPEN_NEW_SIZE   (1<<4)
 #define OPEN_EXPUNGE    (1<<5)
 #define OPEN_SETFLAGS   (1<<6)
@@ -85,15 +99,18 @@ typedef struct message {
 
 #define UIDVAL_BAD ((uint)-1)
 
+#define STORE(store) \
+	store *next; \
+	driver_t *driver; \
+	store##_conf *conf;  /* foreign */
+
 typedef struct store {
-	struct store *next;
-	driver_t *driver;
-	store_conf_t *conf; /* foreign */
+	STORE(struct store)
 } store_t;
 
 typedef struct {
 	char *data;
-	int len;
+	uint len;
 	time_t date;
 	uchar flags;
 } msg_data_t;
@@ -109,6 +126,9 @@ typedef struct {
 #define DRV_CANCELED    4
 
 /* All memory belongs to the driver's user, unless stated otherwise. */
+// If the driver is NOT DRV_ASYNC, memory owned by the driver returned
+// through callbacks MUST remain valid until a related subsequent command
+// is invoked, as the proxy driver may deliver these pointers with delay.
 
 /*
    This flag says that the driver CAN store messages with CRLFs,
@@ -120,12 +140,16 @@ typedef struct {
    This flag says that the driver will act upon (DFlags & VERBOSE).
 */
 #define DRV_VERBOSE     2
+/*
+   This flag says that the driver operates asynchronously.
+*/
+#define DRV_ASYNC       4
 
 #define LIST_INBOX      1
 #define LIST_PATH       2
 #define LIST_PATH_MAYBE 4
 
-#define xint int  // For auto-generation of appropriate printf() formats.
+#define xint uint  // For auto-generation of appropriate printf() formats.
 
 struct driver {
 	/* Return driver capabilities. */
@@ -174,10 +198,13 @@ struct driver {
 	/* Open the selected mailbox.
 	 * Note that this should not directly complain about failure to open. */
 	void (*open_box)( store_t *ctx,
-	                  void (*cb)( int sts, int uidvalidity, void *aux ), void *aux );
+	                  void (*cb)( int sts, uint uidvalidity, void *aux ), void *aux );
 
 	/* Return the minimal UID the next stored message will have. */
-	int (*get_uidnext)( store_t *ctx );
+	uint (*get_uidnext)( store_t *ctx );
+
+	/* Return the flags that can be stored in the selected mailbox. */
+	xint (*get_supported_flags)( store_t *ctx );
 
 	/* Confirm that the open mailbox is empty. */
 	int (*confirm_box_empty)( store_t *ctx );
@@ -201,16 +228,18 @@ struct driver {
 	 * Consider only messages with UIDs between minuid and maxuid (inclusive)
 	 * and those named in the excs array (smaller than minuid).
 	 * The driver takes ownership of the excs array.
-	 * Messages starting with newuid need to have the TUID populated when OPEN_FIND is set.
-	 * Messages up to seenuid need to have the Message-Id populated when OPEN_OLD_IDS is set.
-	 * Messages up to seenuid need to have the size populated when OPEN_OLD_SIZE is set;
-	 * likewise messages above seenuid when OPEN_NEW_SIZE is set.
+	 * Messages starting with finduid need to have the TUID populated when OPEN_FIND is set.
+	 * Messages up to pairuid need to have the Message-Id populated when OPEN_OLD_IDS is set.
+	 * Messages up to newuid need to have the size populated when OPEN_OLD_SIZE is set;
+	 * likewise messages above newuid when OPEN_NEW_SIZE is set.
 	 * The returned message list remains owned by the driver. */
-	void (*load_box)( store_t *ctx, uint minuid, uint maxuid, uint newuid, uint seenuid, uint_array_t excs,
+	void (*load_box)( store_t *ctx, uint minuid, uint maxuid, uint finduid, uint pairuid, uint newuid, uint_array_t excs,
 	                  void (*cb)( int sts, message_t *msgs, int total_msgs, int recent_msgs, void *aux ), void *aux );
 
-	/* Fetch the contents and flags of the given message from the current mailbox. */
-	void (*fetch_msg)( store_t *ctx, message_t *msg, msg_data_t *data,
+	/* Fetch the contents and flags of the given message from the current mailbox.
+	 * If minimal is non-zero, fetch only a placeholder for the requested message -
+	 * ideally, this is precisely the header, but it may be more. */
+	void (*fetch_msg)( store_t *ctx, message_t *msg, msg_data_t *data, int minimal,
 	                   void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Store the given message to either the current mailbox or the trash folder.
@@ -229,17 +258,17 @@ struct driver {
 	 * a pre-fetched one (in which case the in-memory representation is updated),
 	 * or it may be identifed by UID only. The operation may be delayed until commit()
 	 * is called. */
-	void (*set_msg_flags)( store_t *ctx, message_t *msg, uint uid, int add, int del, /* msg can be null, therefore uid as a fallback */
+	void (*set_msg_flags)( store_t *ctx, message_t *msg, uint uid, int add, int del,
 	                       void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Move the given message from the current mailbox to the trash folder.
 	 * This may expunge the original message immediately, but it needn't to. */
-	void (*trash_msg)( store_t *ctx, message_t *msg, /* This may expunge the original message immediately, but it needn't to */
+	void (*trash_msg)( store_t *ctx, message_t *msg,
 	                   void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Expunge deleted messages from the current mailbox and close it.
 	 * There is no need to explicitly close a mailbox if no expunge is needed. */
-	void (*close_box)( store_t *ctx, /* IMAP-style: expunge inclusive */
+	void (*close_box)( store_t *ctx,
 	                   void (*cb)( int sts, void *aux ), void *aux );
 
 	/* Cancel queued commands which are not in flight yet; they will have their
@@ -253,15 +282,16 @@ struct driver {
 	void (*commit_cmds)( store_t *ctx );
 
 	/* Get approximate amount of memory occupied by the driver. */
-	int (*get_memory_usage)( store_t *ctx );
+	uint (*get_memory_usage)( store_t *ctx );
 
 	/* Get the FAIL_* state of the driver. */
 	int (*get_fail_state)( store_conf_t *conf );
 };
 
+uint count_generic_messages( message_t * );
 void free_generic_messages( message_t * );
 
-void parse_generic_store( store_conf_t *store, conffile_t *cfg );
+void parse_generic_store( store_conf_t *store, conffile_t *cfg, const char *type );
 
 store_t *proxy_alloc_store( store_t *real_ctx, const char *label );
 

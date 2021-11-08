@@ -1,3 +1,1804 @@
+2021-07-29 11:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2021-06-21 09:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	limit maildir nesting depth
+
+	this is a cheap way to catch symlink loops. 10 seems like a reasonable
+	limit, as it's unlikely that anyone would be able to actually work with
+	such a deeply nested mailbox tree.
+
+	fixes debian bug #990117.
+
+2021-06-11 15:56  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	enable embedding arbitrarily long strings into IMAP commands
+
+	the AUTHENTICATE command may get insanely long for GSSAPI when SASL-IR
+	is available. instead of growing the buffers each time someone hits the
+	limit (as done in f7cec306), remove the limitation altogether.
+
+	imap_vprintf() still contains a fixed-size buffer which could overflow
+	when really long strings (e.g., mailbox names) need to be quoted. this
+	seems very unlikely, so we'll deal with it if someone actually hits it.
+
+	REFMAIL: 87sg1qxdye.fsf@cern.ch
+
+2021-06-03 09:07  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2021-06-03 09:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2021-04-14 14:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	CVE-2021-3578: fix handling of unexpected APPENDUID response code
+
+	if the code was sent in response to anything but a STORE, we'd overwrite
+	a data pointer in one of our imap_cmd subclasses, an allocator data
+	structure, or the start of the next allocation, with an int that was
+	completely under the server's control. it's plausible that this could be
+	exploited for remote code execution.
+
+	to avoid this, we could ensure that the object is of the right type
+	prior to casting, by using a new flag in the parameter block. but it's
+	easier to just dispose of the out_uid field altogether and reuse the uid
+	field that is present in the parameter block anyway, but was used only
+	for FETCH commands so far.
+
+	this problem was found by Lukas Braun <koomi@moshbit.net> using a
+	fuzzer.
+
+2021-04-14 14:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't crash on malformed CAPABILITY responses
+
+	amends 95a83c822.
+
+	this problem was found by Lukas Braun <koomi@moshbit.net> using a
+	fuzzer.
+
+2021-03-19 17:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c:
+
+	tolerate INBOX mis-casing in Path
+
+	while it's technically reasonable to expect the user to match the
+	server's casing of INBOX if they set Path, this might come as a
+	surprise to those who know that the IMAP INBOX is case-insensitive.
+	so tolerate any casing instead. as a minor side effect, we'd now even be
+	able to deal with a server using different casing in NAMESPACE and LIST.
+
+2021-02-21 20:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2021-02-20 21:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	make UIDVALIDITY recovery more strict about vanished messages
+
+	in particular, this covers the case of a mailbox being replaced with an
+	empty new one, which would subsequently lead to the opposite end being
+	emptied as well, which would typically be undesired.
+
+	also add plenty of comments.
+
+2021-02-20 21:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	improve error messages about irrecoverably changed UIDVALIDITY
+
+	don't print the actual values, which are meaningless technicalities
+	to the average user, and can be obtained separately for debugging if
+	really necessary.
+	also, fix the omission of the affected mailboxes from one of the
+	messages.
+
+2021-02-14 19:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	CVE-2021-20247: reject funny mailbox names from IMAP LIST/LSUB
+
+	in particular, '..' in the name could be used to escape the Path/Inbox
+	of a Maildir Store, which could be exploited for stealing or deleting
+	data, or staging a (mild) DoS attack.
+
+2021-02-14 22:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	be more tolerant of formally malformed response codes
+
+	fastmail sends flags containing ']' in PERMANENTFLAGS, which is formally
+	illegal. however, if we parse the embedded list before looking for the
+	response code's closing ']', things work out fine.
+
+	as a side effect we won't complain about similarly or completely
+	malformed response codes we don't recognize at all, which may or may not
+	be considered an improvement ...
+
+2021-02-14 22:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix bogus continuation of IMAP list parsing
+
+	on error, parse_imap_list() needs to reset the nesting level in the
+	state, as imap_socket_read() uses that as an indicator whether list
+	parsing is ongoing.
+
+2021-02-14 20:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	accept unsolicited FETCH responses (without payload) after all
+
+	while the spec says that the server SHOULD not send FETCH responses
+	about STORE FLAGS when .SILENT is used, at least gmail and fastmail seem
+	to do it nonetheless. also, in case of concurrent flag updates on the
+	affected messages such responses can be legitimately sent.
+
+	in earlier versions of mbsync this would lead to duplicate messages
+	piling up in the store, though that would pose no problem at that point.
+
+2021-02-14 22:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2021-02-07 19:26  Nihal Jere <nihal@nihaljere.xyz>
+
+	* configure.ac, src/common.h, src/util.c:
+
+	use correct <poll.h> header
+
+	In POSIX, poll() should be accessible using <poll.h>, although most
+	implementations keep <sys/poll.h> to avoid breakage. This fixes some
+	warnings when building on musl.
+
+2021-02-03 13:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2021-02-03 13:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	unbreak handling of 'INBOX.' NAMESPACE again
+
+	INBOX matching must not prevent prefix (namespace) stripping, as INBOX
+	may be the namespace.
+
+	amends 04fc586e7.
+
+	REFMAIL: 186391612191752@vla1-ea7e194e8506.qloud-c.yandex.net
+
+2021-01-03 18:39  Anton Khirnov <anton@khirnov.net>
+
+	* src/drv_imap.c:
+
+	Set authentication id for the SASL EXTERNAL mechanism
+
+	The SASL library will refuse to use the EXTERNAL module when no auth id
+	is set a priori.
+
+	Tested to work with Dovecot, using TLS client certificates for
+	authentication.
+
+2021-01-05 18:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	improve SASL error messages
+
+	provide context, and remove the redundant numeric codes.
+
+2021-01-05 18:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	tune SASL-related comments
+
+	- add explanations to the callbacks
+	- remove bogus comment - EXTERNAL can be in fact missing (when no
+	  authentication id is set)
+
+2021-01-01 13:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/util.c:
+
+	save errno in sys_error()
+
+	the print functions prior to perror() might otherwise clobber it.
+
+2020-12-18 13:33  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: remove unused boxname parameter from printbox()
+
+2020-12-18 13:31  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: pass containers by reference
+
+	this makes function prototypes a lot more useful for parameter checking.
+
+2020-12-14 22:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, driver.h, drv_imap.c, drv_proxy.c,
+	  drv_proxy_gen.pl, main.c, run-tests.pl:
+
+	add forced async mode to proxy driver
+
+	to test async operation of the syncing core while using the synchronous
+	maildir driver, we add a mode to the proxy driver where it queues
+	callback invocations to the next main loop iteration.
+
+2020-12-14 13:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_proxy.c:
+
+	localize a variable more appropriately
+
+2020-12-16 12:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: main.c, run-tests.pl:
+
+	consolidate testing options behind common switch
+
+	don't pollute the namespace with random uppercase switches. instead,
+	have a new -T switch with suboptions, just like -D.
+
+2020-12-17 14:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, src/common.h, src/driver.h, src/drv_imap.c,
+	  src/drv_maildir.c, src/drv_proxy.c:
+
+	introduce new inheritance model based on C11 anonymous structs
+
+	the struct declarations got uglier, but their usage requires a lot fewer
+	explicit references to the parent struct (though some are added where
+	using the derived struct is more practical now).
+
+	we also use something i'd term "covariant members": derivatives of
+	store_t also reference derivatives of store_conf_t, etc., which
+	drastically cuts down the number of casts.
+	fwiw, to achieve this with "proper" inheritance in C++, we'd use
+	covariant getter functions which hide the still existing casts.
+
+	C11 is almost a decade old now, and compilers supported that feature
+	even longer than that, so i don't expect this to be a problem.
+
+2020-12-17 21:03  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_proxy.c, drv_proxy_gen.pl:
+
+	add some error checking to proxy template processor
+
+	debugging is a lot easier when the unconsumed (and therefore likely
+	mistyped) replacements are complained about.
+
+2020-12-17 19:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_proxy_gen.pl:
+
+	handle indentation in proxy driver template code more flexibly
+
+	use the indentation of the placeholder, not the replacement.
+	this doesn't matter right now, as all placeholders are indented by one
+	step, but that will change soon.
+
+	the indent function cannot be inlined into the substitution, as for some
+	reason ^ then matches the end of the string, not the embedded line
+	starts (with perl v5.32). also, $1 needs to go into a temporary anyway.
+
+2020-12-14 22:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/common.h:
+
+	make FALLTHROUGH work with qtcreator's code model
+
+	the code model inspector claims that __GNUC__ is 10, but the #if works
+	only with >= 4, which is plain wrong. so just handle clang explicitly.
+
+2020-12-12 13:56  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	improve docu for {Pass,User}Cmd
+
+2020-11-29 12:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	fix build with macOS keychain support
+
+	we use symbols from CoreFoundation directly, so we need to link it
+	explicitly.
+
+	amends 198ca65b.
+
+2020-10-05 11:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	improve wording in man page
+
+2020-10-05 11:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	streamline init of type & name in imap_parse_store()
+
+2020-10-05 11:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, driver.c, driver.h, drv_imap.c,
+	  drv_maildir.c:
+
+	make complaints about unrecognized keywords more verbose
+
+	tell the user in what section the keyword appeared, as that may help
+	spotting mistakes like stray empty lines.
+
+2020-10-05 10:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/config.c:
+
+	complain about global options following sections
+
+	while harmless for most options, such usage is counter to the
+	documentation, and actually breaks CopyArrivalDate, MaxMessages, and
+	ExpireUnread.
+
+2020-10-05 10:31  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/config.c:
+
+	make exit from parsing Group sections less convoluted
+
+	this is a de-optimization, but it makes the code consistent with the
+	other sections (which do not use the shortcut due to having to
+	post-process the data or being encapsulated by a function call).
+
+2020-10-05 09:56  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, config.h, main.c:
+
+	remove the -cT option
+
+	it was another vestige from the compat wrapper.
+
+	amends cbac8aa75.
+
+2020-08-05 18:58  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	improve error handling in post-STORE UIDNEXT fallback
+
+	that's mostly hypothetical, but let's not make assumptions.
+
+	this also adds EXPUNGE response handling to make total_msgs reliable. in
+	principle, this affects the post-SELECT UIDNEXT fallback as well, but
+	there the racing window is so short that this barely improves anything.
+
+	amends 94022a67.
+
+2020-08-05 17:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix UIDNEXT query vs. concurrent imap_fetch_msg()
+
+	the uidnext query following message stores can be interleaved with
+	message fetches. that means that we cannot rely on the 1st command in
+	flight being that query. but instead of iterating over all commands in
+	flight, move the uidnext query flag to imap_store (and make sure to
+	check for the presence of a message body before testing it) - this
+	avoids the loop and an extra byte in every command.
+
+	this also makes it clear that the query is mutually exclusive with
+	loading messages (the untagged responses are not distinguishable).
+
+2020-08-05 16:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c:
+
+	make item tracking in parse_fetch_rsp() more uniform
+
+	amends 67ea5bea7 & a5a8783ea.
+
+2020-08-05 15:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	delay allocation of msgdata.msgid field
+
+	this allows us to simplify the exit path of parse_fetch_rsp().
+
+2020-08-05 15:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix invalid free() in error path
+
+	the tuid isn't actually allocated - it's a pointer into the raw data.
+
+	amends a5a8783e.
+
+2020-08-05 15:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	remove redundant zero initializations
+
+	we already use calloc().
+
+	amends 130664b6.
+
+2020-08-04 07:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	de-duplicate exit paths of imap_alloc_store()
+
+2020-08-04 07:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't unnecessarily re-initialize some members of imap_store
+
+	... when recycling server connections.
+
+2020-08-03 22:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, sync.c:
+
+	use more appropriate return value in driver_t::select_box()
+
+	don't say DRV_CANCELED when it's really DRV_STORE_BAD, as apart from
+	being just wrong, it lead to the confusing effect of canceling a store
+	as the result of a supposed cancellation of the same store.
+
+2020-07-29 18:23  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, socket.c, socket.h, util.c:
+
+	handle CertificateFile more cleanly
+
+	properly distribute the certificates between the SSL context's trust
+	store and our host cert list.
+
+	as a drive-by, clean up some nasty type casts at the cost of including
+	a second OpenSSL header into socket.h.
+
+2020-07-28 14:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_proxy.c:
+
+	actually implement imap_commit_cmds()
+
+	delay reporting success of STORE FLAGS until a subsequent CHECK
+	succeeds.
+
+	this fixes (inverse flag change propagation) and (deletes not being
+	propagated) after an interruption due to prematurely logged flag
+	updates.
+
+2019-12-29 13:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, mbsync.1,
+	  run-tests.pl, sync.c:
+
+	create placeholders for messages over MaxSize
+
+	this is vastly more useful than just omitting the messages with no
+	indication at all.
+
+2019-11-25 19:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: run-tests.pl, sync.c:
+
+	don't rewrite state gratuitously
+
+	delay the creation of the new state and journal until there is actually
+	something interesting to write. this saves some cpu cycles and prolongs
+	ssd life a whee bit.
+
+2019-11-17 18:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, run-tests.pl, sync.c, sync.h:
+
+	add/fix/de-duplicate comments
+
+2019-12-29 13:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	de-duplicate updating of uid in sync records
+
+2020-07-20 18:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: run-tests.pl, sync.c:
+
+	do away with newmaxuid
+
+	now that expiration order is determined by a single loop ordered by
+	far-side UIDs, it is no longer necessary to accurately track the highest
+	seen UID.
+
+	as a side effect, this fixes a problem reported (way too long ago) by
+	Yuri D'Elia: we failed to up newmaxuid for messages we produced
+	ourselves, so we would keep enumerating the same messages until we also
+	propagated externally generated messages from that mailbox - which might
+	have been never for the server side of archive/trash mailboxes.
+
+2020-07-16 12:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	make expiration loops solely far-side-driven
+
+	we can do that, as unpaired near-side messages are ignored anyway.
+
+	this mildly changes expiration order, as near-side messages that
+	existed for a long time but were propagated much later will be expired
+	later. however, that has no practical relevance.
+
+2020-07-16 11:08  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't forget to skip dead messages on far side during expiration
+
+	this is mostly theoretical, as at this point no updates to the message
+	list can have actually happened. but it's future-proof and consistent
+	with the near-side loop.
+
+2020-07-12 15:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	streamline counting of currently pushed messages wrt. expiration
+
+	don't count them as alive just to ignore them in the next step.
+
+2020-07-08 12:37  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	re-nest conditions for syncing new messages
+
+	this makes the logic easier to follow and document in place.
+	also, make the comments actually match reality.
+
+2020-07-21 14:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	handle messages which are newly doomed after an interruption
+
+	we already didn't propagate messages which would be instantly expunged
+	from the target, but failed to cancel propagations that were already
+	scheduled before we got interrupted. this matters a bit when the
+	resumption happens significantly later than the initial attempt, giving
+	the user time to mark messages on the source as deleted.
+
+2020-07-11 14:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	remove redundant condition
+
+	the 'pending' and 'skipped' sync record states are mutually exclusive
+	with having a complementary message, so there is no point in testing it
+	explicitly.
+
+	amends bd5fb6ff.
+
+2019-12-29 10:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, drv_proxy.c,
+	  sync.c:
+
+	fix loading of some messages' sizes in some partial sync scenarios
+
+	we need to pass a different "boundary" UID to driver_t::load_box() for
+	every OPEN_* flag that queries a partial range:
+	- OPEN_FIND refers to messages newer than all we know about
+	- OPEN_OLD_IDS refers to messages which are paired
+	- OPEN_{OLD,NEW}_SIZE refers to messages (not) above the committed
+	  boundary of already propagated messages
+
+	we treated the 3rd like the 2nd, which was just wrong - the actual
+	boundary may be lower or higher, so we'd produce wrong results when
+	MaxSize was set and only one of New and ReNew was requested.
+
+2020-07-22 17:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, config.h, main.c, mbsync.1, mbsyncrc.sample,
+	  run-tests.pl, sync.c, sync.h:
+
+	deprecate master/slave terminology
+
+	the underlying metaphor refers to an inhumane practice, so using it
+	casually is rightfully offensive to many people. it isn't even a
+	particularly apt metaphor, as it suggests a strict hierarchy that is
+	counter to mbsync's highly symmetrical mode of operation.
+
+	the far/near terminology has been chosen as the replacement, as it is a
+	natural fit for the push/pull terminology. on the downside, due to these
+	not being nouns, a few uses are a bit awkward, and several others had to
+	be amended to include 'side'. also, it's conceptually quite close to
+	remote/local, which matches the typical use case, but is maybe a bit too
+	suggestive of actually non-existing limitations.
+
+	the new f/n suffixes of the -C/-R/-X options clash with pre-existing
+	options, so direct concatenation of short options is even less practical
+	than before (some suffixes of -D already clashed), but doing that leads
+	to unreadable command lines anyway.
+
+	as with previous deprecations, all pre-existing command line and config
+	options keep working, but yield a warning. the state files are silently
+	upgraded.
+
+2020-07-04 14:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	purge handling of pending sync entries from state file
+
+	these cannot actually end up in the committed state.
+
+	amends bd5fb6ff.
+
+2020-07-08 20:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, sync.c:
+
+	wrap jFprintf()+debug() into a macro
+
+	this ensures that everything that is logged to the journal also appears
+	in the debug output, and it makes the code less noisy.
+
+2019-11-27 16:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, src/Makefile.am, src/drv_imap.c, src/mbsync.1,
+	  src/mbsyncrc.sample:
+
+	add option to get password from macOS Keychain
+
+	this is better than using PassCmd, as it allows the keychain manager to
+	identify the calling process and therefore use a selective whitelist.
+
+	unlike in the now removed example, we use an "internet password" for the
+	imap protocol, rather than a "generic password" - this seems more
+	appropriate.
+
+	based on a patch by Oliver Runge <oliver.runge@gmail.com>
+
+2019-11-26 11:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	add ability to script IMAP user query
+
+	It was already possible to retrieve passwords from arbitrary commands.
+	But this goes only half the way to allowing automated derivation of
+	login credentials, as some environments may also have different user
+	names based on the system. Therefore, add the UserCmd option to
+	complement PassCmd.
+
+	Based on a patch series by Patrick Steinhardt <ps@pks.im>
+
+2019-11-22 16:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	de-duplicate FETCH response data item traversal somewhat
+
+2019-11-22 16:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	complain about malformed item names in FETCH responses
+
+2019-11-22 15:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	re-nest parse_fetch_rsp()
+
+	prefer early exits over else branches, which is easier to follow.
+
+2019-11-11 15:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	extract parse_fetched_flags() from parse_fetch_rsp()
+
+2019-11-11 15:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	extract parse_fetched_header() from parse_fetch_rsp()
+
+2019-11-11 16:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	handle bogus IMAP FETCH responses more robustly
+
+	don't use assert()s when the error condition can stem not only from
+	errors in mbsync's logic, but also from the IMAP stream being corrupted.
+
+	amends 72be55b0e.
+
+	REFMAIL: 20191021233411.55ctuvslkfqf2pna@koblih.localdomain
+
+2019-11-11 13:29  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	sanitize error handling in IMAP FETCH response processing
+
+	abort on actual error conditions (protocol errors) and downgrade the
+	rest to warnings.
+
+	REFMAIL: 20191102164509.dxayakg3hrmozjnm@carbon
+
+2019-11-11 12:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	centralize disposal of parsed IMAP lists
+
+	makes the code less cluttered, and it's harder to introduce leaks.
+
+	this has the hypothetical disadvantage that due to freeing being
+	delayed, the peak memory usage would rise significantly if we chained to
+	another parse_list() call which produces a big list while already
+	holding a big list, but that isn't the case anywhere.
+
+2019-11-11 12:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fully decompose NAMESPACE response early on
+
+	that way the code becomes clearer, and we don't keep useless nodes in
+	memory.
+
+2019-11-10 16:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	don't store 'shared' and 'other' namespaces
+
+	they are never used anyway, and aren't going to be (because configuring
+	that would be more annoying than just specifying Path manually).
+
+2019-11-16 15:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, socket.c, socket.h, util.c:
+
+	drop redundant conn->writing member
+
+	this information is already encoded in the socket notifier's config.
+
+2019-11-15 19:20  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, util.c:
+
+	rewrite nonsensical struct packing magic
+
+	this couldn't have possibly worked - the alignment also determines the
+	sizeof, thus defeating the intent of the packing.
+
+2019-11-15 19:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	modernize list of gcc warning flags somewhat
+
+2019-07-28 18:50  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, config.c, drv_imap.c, drv_maildir.c,
+	  drv_proxy_gen.pl, main.c, mdconvert.c, socket.c, socket.h,
+	  sync.c, util.c:
+
+	consistently use NULL for null pointers
+
+	makes the code noisier, but also somewhat more expressive.
+
+2020-07-08 15:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, config.c, config.h, driver.c, driver.h,
+	  drv_imap.c, drv_maildir.c, drv_proxy.c, main.c, socket.c,
+	  socket.h, sync.c, sync.h, util.c:
+
+	fix lots of sign conversion warnings
+
+	... by making a lot of objects unsigned, and some signed.
+	casts which lose precision and change the sign in one go (ssize_t and
+	time_t to uint on LP64) are made explicit as well.
+
+2019-07-28 20:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c, sync.c, util.c:
+
+	make some narrowing of integers explicit
+
+	this does specifically *not* cover about a bazillion warnings about
+	size_t being shrunk to uint - these make no sense given the expected
+	data set size.
+
+2019-07-28 19:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, config.c, config.h, sync.c, util.c:
+
+	shrink some data at the source to avoid subsequent narrowing
+
+2019-07-28 19:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, main.c, socket.c, sync.c, sync.h,
+	  util.c:
+
+	constness fixes
+
+	add missing const qualifications, and add "const cast" suppressions
+	where unavoidable.
+
+2019-07-28 18:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, drv_imap.c, main.c, sync.c:
+
+	make more objects static
+
+2019-07-28 17:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, drv_imap.c, main.c, sync.c, util.c:
+
+	add some ATTR_* (mostly)
+
+	mostly ATTR_PRINTFLIKE(*, 0) for functions with a va_list argument.
+
+	also, one ATTR_NORETURN and one ATTR_UNUSED, both on functions.
+
+	also, an explicit suppression for a format string stored in a variable.
+
+2020-08-04 14:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, drv_maildir.c, util.c:
+
+	turn maildir_again() into a proper varargs function
+
+	this is mostly to work around the fact that both gcc and clang won't
+	accept the format string declaration (i.e., will complain with
+	-Wformat-nonliteral) if the *called* function does not actually take a
+	va_list.
+
+	on the upside, it makes one caller cleaner. yay ...
+
+2019-11-26 15:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	remove support for SSLv3
+
+	it's insecure and default builds of openssl don't include it any more.
+
+2019-11-26 15:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1, socket.c, socket.h:
+
+	add support for (disabling) TLS v1.3
+
+	this is actually potentially counterproductive, as people who have set
+	SSLVersions and fail to adjust it will _lose_ tls 1.3 support. however,
+	without the option being there, people (incorrectly) believe that tls
+	1.3 is not supported.
+
+2019-11-26 14:49  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, mbsync.1:
+
+	Add option to use IMAP LSUB instead of LIST
+
+	Based on patch by Cedric Ware <cedric.ware__bml@normalesup.org>
+
+2011-06-02 17:41  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	IMAP: reject unqualified non-uppercased INBOX spellings
+
+	otherwise the server would interpret it as INBOX contrary to our
+	expectations, which might lead to moderately surprising effects.
+
+	if you really want to sync your ~/maildir/inbox to the IMAP INBOX,
+	specify it as the Maildir Store's Inbox.
+
+2019-11-09 18:47  Jaroslav Suchanek <jaroslav.suchanek@gmail.com>
+
+	* src/: drv_imap.c, mbsync.1, socket.c, socket.h:
+
+	Add support for specifying cipher string used for ssl connection
+
+	Some distributions (e.g. Fedora) added support for system wide crypto
+	policies. This is supported in most common crypto libraries including
+	OpenSSL. Applications can override this policy using their own cipher
+	string. This commit adds support for specifying the cipher string in
+	the mbsync configuration.
+
+	For example, to exclude Diffie-Hellman, the user can specify
+	  CipherString "DEFAULT:!DH"
+	in the IMAP Account's configuration.
+
+2019-12-29 11:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	set sync record's flags only after propagating new message
+
+	this is semantically cleaner, and fixes storing the flags in the rare
+	case that flags are not being synced and the target is not being
+	expunged, as in this case flags are queried only during the actual
+	propagation.
+
+2020-07-07 19:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	atomize & document conditions in load() exception list construction
+
+2019-12-29 11:31  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	de-noise msg_copied() and flags_set() somewhat
+
+	assign temporary srec object instead of always spelling out the
+	indirection.
+
+2019-12-03 12:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	de-noise initialization of sync records
+
+	use calloc() instead of malloc().
+
+2019-11-16 16:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.c, socket.h:
+
+	rename socket_expect_read() => socket_expect_activity()
+
+	... to better reflect its (mostly new) function.
+
+2019-11-16 13:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	re-nest conditions in socket_fd_cb()
+
+	conn->state == SCK_STARTTLS implies conn->ssl != NULL.
+
+2019-07-28 11:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	move state assignment to a more natural place
+
+	... so it's right next to the related callback assignment.
+
+2019-11-22 19:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_proxy.c:
+
+	de-noise -Dd output somewhat
+
+	drop commas and left-align fields in message lists.
+
+2020-07-08 11:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, drv_proxy.c,
+	  sync.c:
+
+	fix signedness issues surrounding UIDs
+
+	amends bb632d1c.
+
+2019-11-22 20:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/util.c:
+
+	make find_uint_array() never create negative indices
+
+2019-11-15 19:04  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	centralize "const cast" in make_key()
+
+2019-07-28 18:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, drv_imap.c:
+
+	fix strftime() format string warning properly
+
+	the workaround for -Wformat triggered -Wformat-nonliteral in turn.
+	so instead go back to using pragmas and add a proper gcc version check.
+
+	this also works with clang - mostly for qt-creator's code model, which
+	is clang-based.
+
+	amends/reverts 55e65147.
+
+2019-07-28 20:31  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/common.h:
+
+	don't use reserved identifier pattern in stringify()
+
+2019-11-11 21:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	don't leak the channel list after all
+
+	unlike the actual configuration data, it's not kept in global variables,
+	so it shows up in memcheck.
+
+	amends 1de3ecd88.
+
+2019-11-11 21:32  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	don't leak box list from the command line
+
+	we also free the box list obtained from IMAP, so there isn't a real
+	reason not to do that for one from the command line.
+
+	amends 1de3ecd88.
+
+2020-07-22 12:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	actually implement maildir_get_uidnext()
+
+	the assumption was that this wouldn't be needed, as maildir_store_msg()
+	reliably delivers a UID. however, if we crash right before the callback
+	can record that UID, we'd still use OPEN_FIND in the next run, which
+	requires the saved next UID.
+
+2020-07-21 15:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	get rid of maildir_find_new_msgs() stub
+
+	a failed assertion isn't any better than a clean segfault with an
+	obvious backtrace.
+
+2020-06-14 11:16  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	Maildir: fix setting flags on messages without ":2," part
+
+	this is mostly hypothetical, as all messages i've encountered actually
+	have it even if no flags are set on them.
+
+2019-11-24 09:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am:
+
+	give the coverity build result archive a more descriptive name
+
+2020-04-02 18:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: use symbolic message subjects
+
+	... instead of numbers. otherwise there is too much confusion with UIDs.
+
+2020-04-03 08:43  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: re-order mailbox contents according to UIDs
+
+	... instead of subjects, because that's way more natural and thus less
+	confusing.
+
+2020-04-03 10:18  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: re-organize mailbox storage by UID
+
+	an effect of 7ce658d is that we can index messages by UID rather than
+	content (or more specifically, subject). apart from being cleaner, it
+	allows duplicated subjects.
+
+2020-04-03 09:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: assume that each message has a UID
+
+	followup to 7ce658d14.
+
+2019-12-29 11:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: show the right state file after idempotence test failure
+
+	amends efd72b85.
+
+2019-12-29 10:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: fix prototype of ckbox()
+
+2019-12-29 10:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/run-tests.pl:
+
+	autotest: create the temp dir in $TEMP
+
+	on modern systems, this makes it likely to end up on tmpfs, which is a
+	lot faster and ssd-friendlier.
+
+	the symlink is not deleted at the end, to minimize fs churn. that means
+	it will be dangling after a reboot, which gets fixed in the next run.
+
+2020-08-04 12:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2020-08-04 09:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	fix version comparison in LibreSSL conditional
+
+	the operator was exactly inverted. that means that it actually wouldn't
+	compile with both older versions (that needed the aliases) and
+	potentially new versions (that will hide the data members - still not
+	the case as of 3.2).
+
+	amends 8a40554f0.
+
+2020-08-04 08:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix re-using server connections for new stores
+
+	we failed to reset the box list pointer after freeing it, which would
+	lead to a crash.
+	we also failed to reset the listing status, which would lead to
+	malfunction if we hadn't already crashed.
+
+	this inlines imap_cleanup_store(), as there isn't much value in keeping
+	it. the message list is already freed when disowning the store anyway.
+
+2020-08-03 10:39  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_proxy.c:
+
+	don't crash in proxy_invoke_bad_callback()
+
+	we need to hold a ref to the proxy store, as after the bad_callback()
+	it's otherwise likely gone.
+
+2020-07-27 20:48  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: socket.c, socket.h:
+
+	fix simultaneously connecting to multiple hosts in non-IPv6 builds
+
+	we need to deep-copy the struct hostent data, as otherwise the
+	concurrent connects will overwrite each other's lookup results.
+
+	this is a rather hypothetical fix, as the bug currently affects only
+	channels connecting two IMAP accounts, and only if the first host's
+	first address asynchronously fails to connect.
+
+2020-07-27 22:28  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	increase PassCmd output buffer even more
+
+	apparently, some XOAUTH2 tokens are at 2.4K already, so make it 8K to be
+	*really* safe for a while.
+
+	REFMAIL: <20200716000515.GA2111668@lysator.liu.se>
+
+2020-08-02 18:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	unbreak CertificateFile documentation
+
+	the file may in fact contain CA certs.
+
+	amends 7d9d3e15.
+
+2020-07-08 09:42  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2019-12-29 11:59  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix propagation of flagged oversized messages
+
+	... when not syncing flags and the target is not being expunged, as in
+	that case flags were not queried in time.
+
+2019-11-24 09:54  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/compat/: config.c, main.c:
+
+	fix printf length arguments on lp64
+
+	found by coverity.
+
+2019-09-09 16:47  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, drv_maildir.c:
+
+	handle case-insensitivity of IMAP's INBOX
+
+	this is relevant only when listing an IMAP Store's contents, as that's
+	the only place where we aren't imposing the spelling ourselves.
+
+	we need to be careful not to treat our own canonical (prefix-stripped
+	and always slash-delimited) box names like that; codify that in
+	comments.
+
+	this reveals that commit 6f2160f1 may be deemed to have been incorrect -
+	the TODO item was ambiguous, and could quite possibly have meant this
+	fix. unsurprisingly, 380ccdd4 re-introduced it with more explicit
+	wording.
+
+2019-11-23 12:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	catch server's failure to FETCH *
+
+	the query is untypical enough to have caused problems with davmail (when
+	we still used *:*) and mailo.com (until it got fixed), so better check
+	that the result (not) returned by the server makes sense.
+
+2019-11-16 16:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	don't timeout while uploading big messages
+
+	we did already set up the timeout when starting to send commands, but so
+	far we did not reset it when succeeding to send out data. rectify that.
+
+	REFFAIL: 87sgy92we3.fsf@jnanam.net
+
+2019-12-03 12:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	make -DC work with yama ptrace protection
+
+2019-11-22 20:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_maildir.c, util.c:
+
+	fix overflows in uint comparisons
+
+2019-11-27 16:55  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: compat/isync.1, mbsync.1:
+
+	fix roff abuse in man pages
+
+	".." is not valid. use "." instead, as recommended by groff_man(7).
+	this also necessitated adjusting the markup of the license blurbs.
+
+2019-11-18 17:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	improve documentation of the server certificate related options
+
+2020-02-28 11:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* Makefile.am:
+
+	re-generate ChangeLog only if it's newer than the git index
+
+	otherwise, we'd re-generate it during 'install' as well.
+
+	note that this does not work with new-style git worktrees, where .git is
+	only a file - but there the log generation itself already doesn't work
+	anyway.
+
+2019-11-18 15:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README:
+
+	update build requirements
+
+	in particular, mention perl-related things, which might not be
+	immediately obvious.
+
+2020-07-01 16:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/main.c:
+
+	mention --remove in --help output
+
+	amends d9a983a.
+
+2019-11-23 12:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix UIDNEXT error message
+
+2020-01-08 17:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, sync.c:
+
+	don't try to propagate flags the target store does not support
+
+	$Forwarded is not standard, so it will most likely fail with mailboxes
+	that do not support keywords.
+
+	amends c4d7f018.
+
+2019-12-28 16:45  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/driver.h:
+
+	rename F_PASSED => F_FORWARDED
+
+	the flag names are supposed to reflect the IMAP names (that's why
+	their #defines are followed by comments with the Maildir names).
+
+	amends c4d7f018.
+
+2019-07-28 11:33  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	fix error handling of SSL_set_tlsext_host_name()
+
+	it is not one of the functions to be checked with SSL_get_error().
+
+	amends 17babc169.
+
+2019-07-28 10:11  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	error-check more openssl function calls
+
+2019-07-28 09:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: common.h, socket.c:
+
+	attempt to improve ssl error handling (again)
+
+	the error queue may contain multiple errors, so make sure to drain it
+	completely. also, don't try to fall back to errno in case of
+	SSL_ERROR_SSL.
+
+2019-07-28 10:02  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	modernize ssl context init
+
+	with openssl 1.1+, use TLS_client_method() instead of the deprecated
+	SSLv23_client_method().
+
+2019-07-28 09:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	fix leak of openssl X509 objects
+
+	SSL_get_peer_certificate() increments the refcount of the object.
+
+2019-09-10 11:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	fix libcrypto detection in openssl 1.1+ without pkg-config
+
+	CRYPTO_lock() was removed. test for X509_cmp() instead, which we
+	actually use.
+
+	inspired by report from FX <coudert@users.sourceforge.net>.
+
+2019-09-10 11:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/mbsync.1:
+
+	wording fixes in mbsync.1
+
+	inspired by Ulrich Ölmann <u.oelmann@pengutronix.de>.
+
+2019-08-30 11:13  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac, isync.spec.in:
+
+	purge vestiges of the compat wrapper
+
+	amends cbac8aa75.
+
+2019-08-18 08:38  Caspar Schutijser <caspar@schutijser.com>
+
+	* src/socket.c:
+
+	Do not crash when using Tunnel in an IPv6-enabled build
+
+	socket_connected() is also called on the tunnel pipe.
+
+	amends 3ceb55310.
+
+2019-07-09 18:51  Dmitry Torokhov <dtor@chromium.org>
+
+	* src/drv_imap.c:
+
+	Bump up PassCmd buffer size to 2KiB
+
+	While ordinary passwords are rarely longer than 80 bytes, XOAUTH2 tokens
+	easily exceed this limit. Let's bump it up to 2K to be really safe.
+
+2019-05-28 15:27  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix parsing of NIL hierarchy delimiters in IMAP LIST responses
+
+	a server which does not support hierarchical mailboxes (e.g., seznam.cz
+	as of oct 2018) can legitimately send NIL (rather than an empty string).
+
+2019-05-28 13:44  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	make output of perl check more tidy
+
+	amends c75001aa.
+
+2019-03-10 10:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix spacing in "SASL mechanism(s) not available" error message
+
+	amends fdb03b91.
+
+2019-02-20 18:19  Klemens Nanni <kn@openbsd.org>
+
+	* src/drv_imap.c:
+
+	Fix CopyArrivalDate on platforms without glibc
+
+	strptime(3)'s "%d" day of the month conversion specifier does not accept
+	leading blanks in case of single digit numbers.  "%e" does that.
+
+	While implementation details and differences between the two
+	day-of-month conversion specifiers vary, none of the major libcs
+	(incl. OpenBSD, FreeBSD, Illumos, musl) consume a leading blank for "%d"
+	except glibc, which consumes any number of spaces like in the "%e" case.
+
+	Using "%e" ensures that date strings like " 4-Mar-2018 16:49:25 -0500"
+	are successfully parsed by all major implementations in compliance to
+	X/Open Portability Guide Issue 4, Version 2 ("XPG4.2").  musl is now the
+	only one that still treats "%d" and "%e" without stripping any space.
+
+	Issue analysed and reported by Evan Silberman <evan@jklol.net> who found
+	mbsync 1.3.0 on OpenBSD 6.4 to fail with `CopyArrivalDate' set when
+	syncing mails with the above mentioned timestamp.
+
+	See https://marc.info/?l=openbsd-tech&m=155044284526535 for details.
+
+2019-02-05 10:23  Gergely Risko <gergely@risko.hu>
+
+	* src/drv_imap.c:
+
+	Work around useless SASL warnings
+
+	Ater sasl_client_step() is called and the Cyrus SASL library forwards
+	it to the client plugin, if the result value is OK (authentication
+	succeeded), the clientout is filled out to be an empty string, even if
+	the client plugin wanted to return NULL.
+
+	To avoid that mbsync complains at this point, check the returned length
+	instead of the pointer.
+
+2019-01-04 23:00  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_proxy_gen.pl:
+
+	fix formatting of uint in callback debug stubs
+
+	amends bb632d1c.
+
+2018-11-24 13:15  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: driver.c, driver.h, drv_imap.c:
+
+	sort messages from UID FETCH request
+
+	turns out that some IMAP servers (e.g., poczta.o2.pl) do not return
+	messages in ascending UID order in response to a UID FETCH request,
+	which makes the driver violate the API contract.
+
+	counter this by sorting the messages. this also addresses the
+	long-standing (but hypothetical) issue that parallel UID FETCH requests
+	could be handled out-of-order and thus also lead to mixed up results.
+
+	based on patch by Marcin Niestroj <macius1990w@gmail.com>.
+
+2018-09-09 11:35  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	bump IMAP command buffer size to 4KiB
+
+	while only 1KiB is required by the IMAP spec, AUTHENTICATE GSSAPI with
+	Kerberos requires about 1700 bytes.
+	accomodate that, plus some reserve.
+
+	fix suggested by Tollef Fog Heen <tfheen@err.no> via Debian BTS.
+
+2018-09-08 16:36  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.c:
+
+	use SNI when connecting with SSL
+
+	based on patch by Vincent Bernat <vincent@bernat.ch>.
+
+2018-07-01 11:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: drv_imap.c, socket.h:
+
+	fix type of 'port' and check its range in config reader
+
+2018-05-18 13:24  Klemens Nanni <kn@openbsd.org>
+
+	* src/: drv_maildir.c, drv_proxy.c:
+
+	Fix time_t format strings
+
+	For time_t, long long handles dates after Y2038 and should be safe on
+	32-bit architectures.
+
+	From Jeremie Courreges-Anglas <jca@openbsd.org>.
+
+2018-05-18 13:11  Klemens Nanni <kn@openbsd.org>
+
+	* src/socket.c:
+
+	User functions provided by recent LibreSSL versions
+
+	At least on OpenBSD, this enables new APIs out of the box provided by
+	LibreSSL 2.7.1 and higher.
+
+	From Jeremie Courreges-Anglas <jca@openbsd.org>.
+
+2018-06-21 14:52  Michael J Gruber <github@grubix.eu>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, drv_proxy.c,
+	  sync.c:
+
+	implement Forwarded flag
+
+	maildir supports a 'P' flag which denotes the fact that a message has
+	been 'passed' on (forwarded, bounced). notmuch syncs this to the
+	'passed' tag.
+
+	Per https://tools.ietf.org/html/rfc5788, IMAP has a user-defined flag
+	(keyword) '$Forwarded' that is supported by many servers and clients
+	these days. (Technically, one should check for '$Forwarded' in the
+	server response.)
+
+	Restructure mbsync's flag parser to accept keywords (flags starting with
+	'$') but still bail out on unknown system flags (flags starting with '\').
+	Support '$Forwarded' as a first keyword since it maps to maildir's 'P'
+	and needs to be sorted in between the system flags.
+
+	Signed-off-by: Michael J Gruber <github@grubix.eu>
+
+2018-06-21 14:52  Michael J Gruber <github@grubix.eu>
+
+	* src/: driver.h, drv_imap.c, drv_maildir.c, drv_proxy.c,
+	  sync.c:
+
+	mark MAILBOX_DRIVER_FLAG locations in code
+
+	Mailbox driver flags are defined in several places. It is essential that
+	they are kept in sync, so mark them with the same string for easy
+	grepping with an alerting boiler plate.
+
+	Signed-off-by: Michael J Gruber <github@grubix.eu>
+
+2018-07-01 09:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix IMAP UID sequence also in imap_find_new_msgs()
+
+	use just * instead of the rather nonsensical *:* (which davmail happens
+	to actually barf at).
+
+	amends 72be55b0 (and 0a5a8479).
+
+2018-04-08 16:10  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	fix uidvalidity recovery with really long message-id headers
+
+	re-using the file name buffer for the headers wasn't such a great idea,
+	as _POSIX_PATH_MAX is only 256, while RFC2822 permits lines up to 1000
+	chars. and sure enough, i have a message with a whopping 470-char
+	message-id header ...
+
+2017-11-18 08:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	fix IMAP UID sequence in UIDNEXT determination fallback
+
+	use just * instead of the rather nonsensical *:* (which davmail happens
+	to actually barf at).
+
+	amends 72be55b0.
+
+2017-10-15 14:52  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/util.c:
+
+	make more use of equals()
+
+2017-10-15 14:14  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/: config.c, main.c, sync.c, util.c:
+
+	make map_name() interpret empty strings as "no separator"
+
+	empty strings were previously meaningless, and starting with 72c2d695a,
+	failure to handle them lead to bogus results when the IMAP hierarchy
+	separator is legitimately empty (when the server genuinely supports none
+	and none is manually configured). non-null can be asserted more cleanly
+	than null-or-non-empty, so change the api like that.
+	incidentally, this also removes the need to work around gcc's bogus
+	warning in -Os mode.
+
+	problem found by "Casper Ti. Vector" <caspervector@gmail.com>
+
+2017-10-15 14:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	remove pointless conditional in assignment of ctx->delimiter
+
+	amends 72c2d695a.
+
+2017-10-15 09:34  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	add check for perl and its version
+
+2017-10-07 12:30  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/util.c:
+
+	limit -Wmaybe-uninitialized suppression to gcc >= 4.3
+
+	apple gcc 4.2 complains about the use of the pragma inside a function.
+	clang also complains, but because the pragma is entirely unknown to it.
+
+	as neither compiler emits the bogus warning in the first place, there is
+	no point in suppressing it anyway.
+
+2017-10-07 12:09  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/socket.h:
+
+	don't forward-declare SSL types any more
+
+	our current project structure precludes the clash between some indirect
+	include of ssl.h and our definition of 'S' (or 'M', i don't remember)
+	that happened on some system, so there is no need to avoid including it
+	any more.
+
+	this avoids complaints from some more picky compilers, as re-defining
+	typedefs (even to the same thing) is illegal before C11.
+
+2017-10-07 12:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* .gitignore:
+
+	git-ignore tar ball signatures
+
+2017-10-07 12:17  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2017-10-01 13:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* README, configure.ac, src/Makefile.am, src/compat/.gitignore,
+	  src/compat/Makefile.am, src/compat/config.c,
+	  src/compat/convert.c, src/compat/isync.1, src/compat/isync.h,
+	  src/compat/isyncrc.sample, src/compat/main.c,
+	  src/compat/util.c, src/mbsync.1:
+
+	delete the compat wrapper
+
+	it was deprecated in 1.2. until 1.4 gets released, enough time will have
+	passed for sure.
+
+2017-10-01 13:06  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
 2017-10-01 12:59  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* Makefile.am:

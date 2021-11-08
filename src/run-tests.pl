@@ -20,28 +20,36 @@ use warnings;
 use strict;
 use Cwd;
 use File::Path;
+use File::Temp 'tempdir';
 
 my $use_vg = $ENV{USE_VALGRIND};
 my $mbsync = getcwd()."/mbsync";
 
--d "tmp" or mkdir "tmp";
+if (!-d "tmp") {
+  unlink "tmp";
+  my $tdir = tempdir();
+  symlink $tdir, "tmp" or die "Cannot symlink temp directory: $!\n";
+}
 chdir "tmp" or die "Cannot enter temp direcory.\n";
 
 sub show($$$);
-sub test($$$@);
+sub test($$$$);
 
 ################################################################################
 
-# Format of the test defs: [ master, slave, state ]
-# master/slave: [ maxuid, { seq, uid, flags }... ]
-# state: [ MaxPulledUid, MaxExpiredMasterUid, MaxPushedUid, { muid, suid, flags }... ]
+# Format of the test defs: [ far, near, state ]
+# far/near: [ maxuid, { seq, uid, flags }... ]
+# state: [ MaxPulledUid, MaxExpiredFarUid, MaxPushedUid, { muid, suid, flags }... ]
+
+use enum qw(:=1 A..Z);
+sub mn($) { chr(64 + shift) }
 
 # generic syncing tests
 my @x01 = (
  [ 9,
-   1, 1, "F", 2, 2, "", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "F", 7, 7, "FT", 9, 9, "" ],
+   A, 1, "F", B, 2, "", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "F", G, 7, "FT", I, 9, "" ],
  [ 9,
-   1, 1, "", 2, 2, "F", 3, 3, "F", 4, 4, "", 5, 5, "", 7, 7, "", 8, 8, "", 10, 9, "" ],
+   A, 1, "", B, 2, "F", C, 3, "F", D, 4, "", E, 5, "", G, 7, "", H, 8, "", J, 9, "" ],
  [ 8, 0, 0,
    1, 1, "", 2, 2, "", 3, 3, "", 4, 4, "", 5, 5, "", 6, 6, "", 7, 7, "", 8, 8, "" ],
 );
@@ -50,138 +58,184 @@ my @O01 = ("", "", "");
 #show("01", "01", "01");
 my @X01 = (
  [ 10,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "FT", 7, 7, "FT", 9, 9, "", 10, 10, "" ],
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "FT", G, 7, "FT", I, 9, "", J, 10, "" ],
  [ 10,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 7, 7, "FT", 8, 8, "T", 9, 10, "", 10, 9, "" ],
- [ 9, 0, 9,
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", E, 5, "T", G, 7, "FT", H, 8, "T", J, 9, "", I, 10, "" ],
+ [ 10, 0, 10,
    1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 0, "", 7, 7, "FT", 0, 8, "", 10, 9, "", 9, 10, "" ],
 );
-test("full", \@x01, \@X01, @O01);
+test("full", \@x01, \@X01, \@O01);
 
 my @O02 = ("", "", "Expunge Both\n");
 #show("01", "02", "02");
 my @X02 = (
  [ 10,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 9, 9, "", 10, 10, "" ],
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", I, 9, "", J, 10, "" ],
  [ 10,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 9, 10, "", 10, 9, "" ],
- [ 9, 0, 9,
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", J, 9, "", I, 10, "" ],
+ [ 10, 0, 10,
    1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 10, 9, "", 9, 10, "" ],
 );
-test("full + expunge both", \@x01, \@X02, @O02);
+test("full + expunge both", \@x01, \@X02, \@O02);
 
-my @O03 = ("", "", "Expunge Slave\n");
+my @O03 = ("", "", "Expunge Near\n");
 #show("01", "03", "03");
 my @X03 = (
  [ 10,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "FT", 7, 7, "FT", 9, 9, "", 10, 10, "" ],
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "FT", G, 7, "FT", I, 9, "", J, 10, "" ],
  [ 10,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 9, 10, "", 10, 9, "" ],
- [ 9, 0, 9,
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", J, 9, "", I, 10, "" ],
+ [ 10, 0, 10,
    1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 0, "T", 6, 0, "", 7, 0, "T", 10, 9, "", 9, 10, "" ],
 );
-test("full + expunge slave", \@x01, \@X03, @O03);
+test("full + expunge near side", \@x01, \@X03, \@O03);
 
 my @O04 = ("", "", "Sync Pull\n");
 #show("01", "04", "04");
 my @X04 = (
  [ 9,
-   1, 1, "F", 2, 2, "", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "F", 7, 7, "FT", 9, 9, "" ],
+   A, 1, "F", B, 2, "", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "F", G, 7, "FT", I, 9, "" ],
  [ 10,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 7, 7, "FT", 8, 8, "T", 9, 10, "", 10, 9, "" ],
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", E, 5, "T", G, 7, "FT", H, 8, "T", J, 9, "", I, 10, "" ],
  [ 9, 0, 0,
    1, 1, "F", 2, 2, "", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "", 7, 7, "FT", 0, 8, "", 9, 10, "" ],
 );
-test("pull", \@x01, \@X04, @O04);
+test("pull", \@x01, \@X04, \@O04);
 
 my @O05 = ("", "", "Sync Flags\n");
 #show("01", "05", "05");
 my @X05 = (
  [ 9,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "F", 7, 7, "FT", 9, 9, "" ],
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "F", G, 7, "FT", I, 9, "" ],
  [ 9,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 7, 7, "FT", 8, 8, "", 10, 9, "" ],
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", E, 5, "T", G, 7, "FT", H, 8, "", J, 9, "" ],
  [ 8, 0, 0,
    1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "", 7, 7, "FT", 8, 8, "" ],
 );
-test("flags", \@x01, \@X05, @O05);
+test("flags", \@x01, \@X05, \@O05);
 
 my @O06 = ("", "", "Sync Delete\n");
 #show("01", "06", "06");
 my @X06 = (
  [ 9,
-   1, 1, "F", 2, 2, "", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "FT", 7, 7, "FT", 9, 9, "" ],
+   A, 1, "F", B, 2, "", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "FT", G, 7, "FT", I, 9, "" ],
  [ 9,
-   1, 1, "", 2, 2, "F", 3, 3, "F", 4, 4, "", 5, 5, "", 7, 7, "", 8, 8, "T", 10, 9, "" ],
+   A, 1, "", B, 2, "F", C, 3, "F", D, 4, "", E, 5, "", G, 7, "", H, 8, "T", J, 9, "" ],
  [ 8, 0, 0,
    1, 1, "", 2, 2, "", 3, 3, "", 4, 4, "", 5, 5, "", 6, 0, "", 7, 7, "", 0, 8, "" ],
 );
-test("deletions", \@x01, \@X06, @O06);
+test("deletions", \@x01, \@X06, \@O06);
 
 my @O07 = ("", "", "Sync New\n");
 #show("01", "07", "07");
 my @X07 = (
  [ 10,
-   1, 1, "F", 2, 2, "", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "F", 7, 7, "FT", 9, 9, "", 10, 10, "" ],
+   A, 1, "F", B, 2, "", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "F", G, 7, "FT", I, 9, "", J, 10, "" ],
  [ 10,
-   1, 1, "", 2, 2, "F", 3, 3, "F", 4, 4, "", 5, 5, "", 7, 7, "", 8, 8, "", 9, 10, "", 10, 9, "" ],
- [ 9, 0, 9,
+   A, 1, "", B, 2, "F", C, 3, "F", D, 4, "", E, 5, "", G, 7, "", H, 8, "", J, 9, "", I, 10, "" ],
+ [ 10, 0, 10,
    1, 1, "", 2, 2, "", 3, 3, "", 4, 4, "", 5, 5, "", 6, 6, "", 7, 7, "", 8, 8, "", 10, 9, "", 9, 10, "" ],
 );
-test("new", \@x01, \@X07, @O07);
+test("new", \@x01, \@X07, \@O07);
 
 my @O08 = ("", "", "Sync PushFlags PullDelete\n");
 #show("01", "08", "08");
 my @X08 = (
  [ 9,
-   1, 1, "F", 2, 2, "F", 3, 3, "FS", 4, 4, "", 5, 5, "T", 6, 6, "F", 7, 7, "FT", 9, 9, "" ],
+   A, 1, "F", B, 2, "F", C, 3, "FS", D, 4, "", E, 5, "T", F, 6, "F", G, 7, "FT", I, 9, "" ],
  [ 9,
-   1, 1, "", 2, 2, "F", 3, 3, "F", 4, 4, "", 5, 5, "", 7, 7, "", 8, 8, "T", 10, 9, "" ],
+   A, 1, "", B, 2, "F", C, 3, "F", D, 4, "", E, 5, "", G, 7, "", H, 8, "T", J, 9, "" ],
  [ 8, 0, 0,
    1, 1, "", 2, 2, "F", 3, 3, "F", 4, 4, "", 5, 5, "", 6, 6, "", 7, 7, "", 0, 8, "" ],
 );
-test("push flags + pull deletions", \@x01, \@X08, @O08);
+test("push flags + pull deletions", \@x01, \@X08, \@O08);
 
 # size restriction tests
 
 my @x10 = (
  [ 2,
-   1, 1, "", 2, 2, "*" ],
+   A, 1, "", B, 2, "*" ],
  [ 1,
-   3, 1, "*" ],
+   C, 1, "*" ],
  [ 0, 0, 0,
     ],
 );
 
-my @O11 = ("MaxSize 1k\n", "MaxSize 1k\n", "");
+my @O11 = ("MaxSize 1k\n", "MaxSize 1k\n", "Expunge Near");
 #show("10", "11", "11");
 my @X11 = (
- [ 2,
-   1, 1, "", 2, 2, "*" ],
- [ 2,
-   3, 1, "*", 1, 2, "" ],
- [ 2, 0, 1,
-   0, 1, "^", 1, 2, "", 2, 0, "^" ],
-);
-test("max size", \@x10, \@X11, @O11);
-
-my @O22 = ("", "MaxSize 1k\n", "");
-#show("11", "22", "22");
-my @X22 = (
  [ 3,
-   1, 1, "", 2, 2, "*", 3, 3, "*" ],
- [ 2,
-   3, 1, "*", 1, 2, "" ],
- [ 2, 0, 1,
-   3, 1, "", 1, 2, "", 2, 0, "^" ],
+   A, 1, "", B, 2, "*", C, 3, "?" ],
+ [ 3,
+   C, 1, "*", A, 2, "", B, 3, "?" ],
+ [ 3, 0, 3,
+   3, 1, "<", 1, 2, "", 2, 3, ">" ],
 );
-test("slave max size", \@X11, \@X22, @O22);
+test("max size", \@x10, \@X11, \@O11);
+
+my @x22 = (
+ [ 3,
+   A, 1, "", B, 2, "*", C, 3, "?" ],
+ [ 3,
+   C, 1, "F*", A, 2, "", B, 3, "F?" ],
+ [ 3, 0, 3,
+   3, 1, "<", 1, 2, "", 2, 3, ">" ],
+);
+
+#show("22", "22", "11");
+my @X22 = (
+ [ 4,
+   A, 1, "", B, 2, "*", C, 3, "T?", C, 4, "F*" ],
+ [ 4,
+   C, 1, "F*", A, 2, "", B, 4, "*" ],
+ [ 4, 0, 4,
+   4, 1, "F", 3, 0, "T", 1, 2, "", 2, 4, "" ],
+);
+test("max size + flagging", \@x22, \@X22, \@O11);
+
+my @x23 = (
+ [ 2,
+   A, 1, "", B, 2, "F*" ],
+ [ 1,
+   C, 1, "F*" ],
+ [ 0, 0, 0,
+    ],
+);
+
+my @X23 = (
+ [ 3,
+   A, 1, "", B, 2, "F*", C, 3, "F*" ],
+ [ 3,
+   C, 1, "F*", A, 2, "", B, 3, "F*" ],
+ [ 3, 0, 3,
+   3, 1, "F", 1, 2, "", 2, 3, "F" ]
+);
+test("max size + initial flagging", \@x23, \@X23, \@O11);
+
+my @x24 = (
+ [ 3,
+   A, 1, "", B, 2, "*", C, 3, "F*" ],
+ [ 1,
+   A, 1, "" ],
+ [ 3, 0, 1,
+   1, 1, "", 2, 0, "^", 3, 0, "^" ],
+);
+
+my @X24 = (
+ [ 3,
+   A, 1, "", B, 2, "*", C, 3, "F*" ],
+ [ 3,
+   A, 1, "", B, 2, "?", C, 3, "F*" ],
+ [ 3, 0, 3,
+   1, 1, "", 2, 2, ">", 3, 3, "F" ],
+);
+test("max size (pre-1.4 legacy)", \@x24, \@X24, \@O11);
 
 # expiration tests
 
 my @x30 = (
  [ 6,
-   1, 1, "F", 2, 2, "", 3, 3, "S", 4, 4, "", 5, 5, "S", 6, 6, "" ],
+   A, 1, "F", B, 2, "", C, 3, "S", D, 4, "", E, 5, "S", F, 6, "" ],
  [ 0,
    ],
  [ 0, 0, 0,
@@ -192,31 +246,31 @@ my @O31 = ("", "", "MaxMessages 3\n");
 #show("30", "31", "31");
 my @X31 = (
  [ 6,
-   1, 1, "F", 2, 2, "", 3, 3, "S", 4, 4, "", 5, 5, "S", 6, 6, "" ],
+   A, 1, "F", B, 2, "", C, 3, "S", D, 4, "", E, 5, "S", F, 6, "" ],
  [ 5,
-   1, 1, "F", 2, 2, "", 4, 3, "", 5, 4, "S", 6, 5, "" ],
- [ 6, 3, 0,
+   A, 1, "F", B, 2, "", D, 3, "", E, 4, "S", F, 5, "" ],
+ [ 6, 3, 5,
    1, 1, "F", 2, 2, "", 4, 3, "", 5, 4, "S", 6, 5, "" ],
 );
-test("max messages", \@x30, \@X31, @O31);
+test("max messages", \@x30, \@X31, \@O31);
 
 my @O32 = ("", "", "MaxMessages 3\nExpireUnread yes\n");
 #show("30", "32", "32");
 my @X32 = (
  [ 6,
-   1, 1, "F", 2, 2, "", 3, 3, "S", 4, 4, "", 5, 5, "S", 6, 6, "" ],
+   A, 1, "F", B, 2, "", C, 3, "S", D, 4, "", E, 5, "S", F, 6, "" ],
  [ 4,
-   1, 1, "F", 4, 2, "", 5, 3, "S", 6, 4, "" ],
- [ 6, 3, 0,
+   A, 1, "F", D, 2, "", E, 3, "S", F, 4, "" ],
+ [ 6, 3, 4,
    1, 1, "F", 4, 2, "", 5, 3, "S", 6, 4, "" ],
 );
-test("max messages vs. unread", \@x30, \@X32, @O32);
+test("max messages vs. unread", \@x30, \@X32, \@O32);
 
 my @x50 = (
  [ 6,
-   1, 1, "FS", 2, 2, "FS", 3, 3, "S", 4, 4, "", 5, 5, "", 6, 6, "" ],
+   A, 1, "FS", B, 2, "FS", C, 3, "S", D, 4, "", E, 5, "", F, 6, "" ],
  [ 6,
-   1, 1, "S", 2, 2, "ST", 4, 4, "", 5, 5, "", 6, 6, "" ],
+   A, 1, "S", B, 2, "ST", D, 4, "", E, 5, "", F, 6, "" ],
  [ 6, 3, 0,
    1, 1, "FS", 2, 2, "~S", 3, 3, "~S", 4, 4, "", 5, 5, "", 6, 6, "" ],
 );
@@ -225,19 +279,17 @@ my @O51 = ("", "", "MaxMessages 3\nExpunge Both\n");
 #show("50", "51", "51");
 my @X51 = (
  [ 6,
-   1, 1, "S", 2, 2, "FS", 3, 3, "S", 4, 4, "", 5, 5, "", 6, 6, "" ],
+   A, 1, "S", B, 2, "FS", C, 3, "S", D, 4, "", E, 5, "", F, 6, "" ],
  [ 6,
-   2, 2, "FS", 4, 4, "", 5, 5, "", 6, 6, "" ],
- [ 6, 3, 0,
+   B, 2, "FS", D, 4, "", E, 5, "", F, 6, "" ],
+ [ 6, 3, 6,
    2, 2, "FS", 4, 4, "", 5, 5, "", 6, 6, "" ],
 );
-test("max messages + expunge", \@x50, \@X51, @O51);
+test("max messages + expunge", \@x50, \@X51, \@O51);
 
 
 ################################################################################
 
-chdir "..";
-rmdir "tmp";
 print "OK.\n";
 exit 0;
 
@@ -252,27 +304,29 @@ sub qm($)
 	return $_;
 }
 
-# $master, $slave, $channel
-sub writecfg($$$)
+# [ $far, $near, $channel ]
+sub writecfg($)
 {
+	my ($sfx) = @_;
+
 	open(FILE, ">", ".mbsyncrc") or
 		die "Cannot open .mbsyncrc.\n";
 	print FILE
 "FSync no
 
-MaildirStore master
+MaildirStore far
 Path ./
-Inbox ./master
-".shift()."
-MaildirStore slave
+Inbox ./far
+".$$sfx[0]."
+MaildirStore near
 Path ./
-Inbox ./slave
-".shift()."
+Inbox ./near
+".$$sfx[1]."
 Channel test
-Master :master:
-Slave :slave:
+Far :far:
+Near :near:
 SyncState *
-".shift();
+".$$sfx[2];
 	close FILE;
 }
 
@@ -282,10 +336,11 @@ sub killcfg()
 	unlink ".mbsyncrc";
 }
 
-# $options
-sub runsync($$)
+# $run_async, $mbsync_options, $log_file
+# Return: $exit_code, \@mbsync_output
+sub runsync($$$)
 {
-	my ($flags, $file) = @_;
+	my ($async, $flags, $file) = @_;
 
 	my $cmd;
 	if ($use_vg) {
@@ -293,7 +348,8 @@ sub runsync($$)
 	} else {
 		$flags .= " -D";
 	}
-	$cmd .= "$mbsync -Z $flags -c .mbsyncrc test";
+	$flags .= " -Ta" if ($async);
+	$cmd .= "$mbsync -Tz $flags -c .mbsyncrc test";
 	open FILE, "$cmd 2>&1 |";
 	my @out = <FILE>;
 	close FILE or push(@out, $! ? "*** error closing mbsync: $!\n" : "*** mbsync exited with signal ".($?&127).", code ".($?>>8)."\n");
@@ -302,11 +358,12 @@ sub runsync($$)
 		print FILE @out;
 		close FILE;
 	}
-	return $?, @out;
+	return $?, \@out;
 }
 
 
 # $path
+# Return: $max_uid, { uid => [ seq, flags ] }
 sub readbox($)
 {
 	my $bn = shift;
@@ -323,11 +380,9 @@ sub readbox($)
 	for my $d ("cur", "new") {
 		opendir(DIR, $bn."/".$d) or next;
 		for my $f (grep(!/^\.\.?$/, readdir(DIR))) {
-			my ($uid, $flg, $num);
+			my ($uid, $flg, $ph, $num);
 			if ($f =~ /^\d+\.\d+_\d+\.[-[:alnum:]]+,U=(\d+):2,(.*)$/) {
 				($uid, $flg) = ($1, $2);
-			} elsif ($f =~ /^\d+\.\d+_(\d+)\.[-[:alnum:]]+:2,(.*)$/) {
-				($uid, $flg) = (0, $2);
 			} else {
 				print STDERR "unrecognided file name '$f' in '$bn'.\n";
 				exit 1;
@@ -335,7 +390,7 @@ sub readbox($)
 			open(FILE, "<", $bn."/".$d."/".$f) or die "Cannot read message '$f' in '$bn'.\n";
 			my $sz = 0;
 			while (<FILE>) {
-				/^Subject: (\d+)$/ && ($num = $1);
+				/^Subject: (\[placeholder\] )?(\d+)$/ && ($ph = defined($1), $num = $2);
 				$sz += length($_);
 			}
 			close FILE;
@@ -343,10 +398,10 @@ sub readbox($)
 				print STDERR "message '$f' in '$bn' has no identifier.\n";
 				exit 1;
 			}
-			@{ $ms{$num} } = ($uid, $flg.($sz>1000?"*":""));
+			@{ $ms{$uid} } = ($num, $flg.($sz>1000?"*":"").($ph?"?":""));
 		}
 	}
-	return ($mu, %ms);
+	return $mu, \%ms;
 }
 
 # $boxname
@@ -357,18 +412,18 @@ sub showbox($)
 {
 	my ($bn) = @_;
 
-	my ($mu, %ms) = readbox($bn);
-	my @MS = ($mu);
-	for my $num (sort { $a <=> $b } keys %ms) {
-		push @MS, $num, $ms{$num}[0], $ms{$num}[1];
+	my ($mu, $ms) = readbox($bn);
+	my @bc = ($mu);
+	for my $uid (sort { $a <=> $b } keys %$ms) {
+		push @bc, $$ms{$uid}[0], $uid, $$ms{$uid}[1];
 	}
-	printbox($bn, @MS);
+	printbox(\@bc);
 }
 
 # $filename
 # Output:
-# [ maxuid[M], mmaxxuid, maxuid[S],
-#   uid[M], uid[S], "flags", ... ],
+# [ maxuid[F], maxxfuid, maxuid[N],
+#   uid[F], uid[N], "flags", ... ],
 sub showstate($)
 {
 	my ($fn) = @_;
@@ -396,13 +451,13 @@ sub showstate($)
 		return;
 	}
 	my @T = ($hdr{'MaxPulledUid'} // "missing",
-	         $hdr{'MaxExpiredMasterUid'} // "0",
+	         $hdr{'MaxExpiredFarUid'} // "0",
 	         $hdr{'MaxPushedUid'} // "missing");
 	for (@ls) {
 		/^(\d+) (\d+) (.*)$/;
 		push @T, $1, $2, $3;
 	}
-	printstate(@T);
+	printstate(\@T);
 }
 
 # $filename
@@ -410,8 +465,8 @@ sub showchan($)
 {
 	my ($fn) = @_;
 
-	showbox("master");
-	showbox("slave");
+	showbox("far");
+	showbox("near");
 	showstate($fn);
 }
 
@@ -419,109 +474,105 @@ sub showchan($)
 sub show($$$)
 {
 	my ($sx, $tx, $sfxn) = @_;
-	my (@sp, @sfx);
-	eval "\@sp = \@x$sx";
-	eval "\@sfx = \@O$sfxn";
-	mkchan($sp[0], $sp[1], @{ $sp[2] });
+	my ($sp, $sfx);
+	eval "\$sp = \\\@x$sx";
+	eval "\$sfx = \\\@O$sfxn";
+	mkchan($$sp[0], $$sp[1], $$sp[2]);
 	print "my \@x$sx = (\n";
-	showchan("slave/.mbsyncstate");
+	showchan("near/.mbsyncstate");
 	print ");\n";
-	&writecfg(@sfx);
-	runsync("", "");
+	writecfg($sfx);
+	runsync(0, "", "");
 	killcfg();
 	print "my \@X$tx = (\n";
-	showchan("slave/.mbsyncstate");
+	showchan("near/.mbsyncstate");
 	print ");\n";
-	print "test(\"\", \\\@x$sx, \\\@X$tx, \@O$sfxn);\n\n";
-	rmtree "slave";
-	rmtree "master";
+	print "test(\"\", \\\@x$sx, \\\@X$tx, \\\@O$sfxn);\n\n";
+	rmtree "near";
+	rmtree "far";
 }
 
-# $boxname, $maxuid, @msgs
-sub mkbox($$@)
+# $box_name, \@box_state
+sub mkbox($$)
 {
-	my ($bn, $mu, @ms) = @_;
+	my ($bn, $bs) = @_;
 
 	rmtree($bn);
 	(mkdir($bn) and mkdir($bn."/tmp") and mkdir($bn."/new") and mkdir($bn."/cur")) or
 		die "Cannot create mailbox $bn.\n";
 	open(FILE, ">", $bn."/.uidvalidity") or die "Cannot create UID validity for mailbox $bn.\n";
-	print FILE "1\n$mu\n";
+	print FILE "1\n$$bs[0]\n";
 	close FILE;
-	while (@ms) {
-		my ($num, $uid, $flg) = (shift @ms, shift @ms, shift @ms);
-		if ($uid) {
-			$uid = ",U=".$uid;
-		} else {
-			$uid = "";
-		}
+	for (my $i = 1; $i < @$bs; $i += 3) {
+		my ($num, $uid, $flg) = ($$bs[$i], $$bs[$i + 1], $$bs[$i + 2]);
 		my $big = $flg =~ s/\*//;
-		open(FILE, ">", $bn."/".($flg =~ /S/ ? "cur" : "new")."/0.1_".$num.".local".$uid.":2,".$flg) or
-			die "Cannot create message $num in mailbox $bn.\n";
-		print FILE "From: foo\nTo: bar\nDate: Thu, 1 Jan 1970 00:00:00 +0000\nSubject: $num\n\n".(("A"x50)."\n")x($big*30);
+		my $ph = $flg =~ s/\?//;
+		open(FILE, ">", $bn."/".($flg =~ /S/ ? "cur" : "new")."/0.1_".$num.".local,U=".$uid.":2,".$flg) or
+			die "Cannot create message ".mn($num)." in mailbox $bn.\n";
+		print FILE "From: foo\nTo: bar\nDate: Thu, 1 Jan 1970 00:00:00 +0000\nSubject: ".($ph?"[placeholder] ":"").$num."\n\n".(("A"x50)."\n")x($big*30);
 		close FILE;
 	}
 }
 
-# \@master, \@slave, @syncstate
-sub mkchan($$@)
+# \@far_state, \@near_state, \@sync_state
+sub mkchan($$$)
 {
-	my ($m, $s, @t) = @_;
-	&mkbox("master", @{ $m });
-	&mkbox("slave", @{ $s });
-	open(FILE, ">", "slave/.mbsyncstate") or
+	my ($f, $n, $t) = @_;
+	mkbox("far", $f);
+	mkbox("near", $n);
+	open(FILE, ">", "near/.mbsyncstate") or
 		die "Cannot create sync state.\n";
-	print FILE "MasterUidValidity 1\nMaxPulledUid ".shift(@t)."\n".
-	           "SlaveUidValidity 1\nMaxExpiredMasterUid ".shift(@t)."\nMaxPushedUid ".shift(@t)."\n\n";
-	while (@t) {
-		print FILE shift(@t)." ".shift(@t)." ".shift(@t)."\n";
+	print FILE "FarUidValidity 1\nMaxPulledUid ".$$t[0]."\n".
+	           "NearUidValidity 1\nMaxExpiredFarUid ".$$t[1]."\nMaxPushedUid ".$$t[2]."\n\n";
+	for (my $i = 3; $i < @$t; $i += 3) {
+		print FILE $$t[$i]." ".$$t[$i + 1]." ".$$t[$i + 2]."\n";
 	}
 	close FILE;
 }
 
-# $config, $boxname, $maxuid, @msgs
-sub ckbox($$$@)
+# $box_name, \@box_state
+sub ckbox($$)
 {
-	my ($bn, $MU, @MS) = @_;
+	my ($bn, $bs) = @_;
 
-	my ($mu, %ms) = readbox($bn);
-	if ($mu != $MU) {
-		print STDERR "MAXUID mismatch for '$bn' (got $mu, wanted $MU).\n";
+	my ($mu, $ms) = readbox($bn);
+	if ($mu != $$bs[0]) {
+		print STDERR "MAXUID mismatch for '$bn' (got $mu, wanted $$bs[0]).\n";
 		return 1;
 	}
-	while (@MS) {
-		my ($num, $uid, $flg) = (shift @MS, shift @MS, shift @MS);
-		if (!defined $ms{$num}) {
-			print STDERR "No message $bn:$num.\n";
+	for (my $i = 1; $i < @$bs; $i += 3) {
+		my ($num, $uid, $flg) = ($$bs[$i], $$bs[$i + 1], $$bs[$i + 2]);
+		my $m = delete $$ms{$uid};
+		if (!defined $m) {
+			print STDERR "No message $bn:$uid.\n";
 			return 1;
 		}
-		if ($ms{$num}[0] ne $uid) {
-			print STDERR "UID mismatch for $bn:$num.\n";
+		if ($$m[0] ne $num) {
+			print STDERR "Subject mismatch for $bn:$uid.\n";
 			return 1;
 		}
-		if ($ms{$num}[1] ne $flg) {
-			print STDERR "Flag mismatch for $bn:$num.\n";
+		if ($$m[1] ne $flg) {
+			print STDERR "Flag mismatch for $bn:$uid.\n";
 			return 1;
 		}
-		delete $ms{$num};
 	}
-	if (%ms) {
-		print STDERR "Excess messages in '$bn': ".join(", ", sort({$a <=> $b } keys(%ms))).".\n";
+	if (%$ms) {
+		print STDERR "Excess messages in '$bn': ".join(", ", sort({ $a <=> $b } keys(%$ms))).".\n";
 		return 1;
 	}
 	return 0;
 }
 
-# $filename, @syncstate
-sub ckstate($@)
+# $state_file, \@sync_state
+sub ckstate($$)
 {
-	my ($fn, $mmaxuid, $mmaxxuid, $smaxuid, @T) = @_;
+	my ($fn, $t) = @_;
 	my %hdr;
-	$hdr{'MasterUidValidity'} = "1";
-	$hdr{'SlaveUidValidity'} = "1";
-	$hdr{'MaxPulledUid'} = $mmaxuid;
-	$hdr{'MaxPushedUid'} = $smaxuid;
-	$hdr{'MaxExpiredMasterUid'} = $mmaxxuid if ($mmaxxuid ne 0);
+	$hdr{'FarUidValidity'} = "1";
+	$hdr{'NearUidValidity'} = "1";
+	$hdr{'MaxPulledUid'} = $$t[0];
+	$hdr{'MaxPushedUid'} = $$t[2];
+	$hdr{'MaxExpiredFarUid'} = $$t[1] if ($$t[1] ne 0);
 	open(FILE, "<", $fn) or die "Cannot read sync state $fn.\n";
 	chomp(my @ls = <FILE>);
 	close FILE;
@@ -551,65 +602,68 @@ sub ckstate($@)
 		print STDERR "Keys missing from sync state header: @ky\n";
 		return 1;
 	}
+	my $i = 3;
 	for my $l (@ls) {
-		if (!@T) {
+		if ($i == @$t) {
 			print STDERR "Excess sync state entry: '$l'.\n";
 			return 1;
 		}
-		my $xl = shift(@T)." ".shift(@T)." ".shift(@T);
+		my $xl = $$t[$i]." ".$$t[$i + 1]." ".$$t[$i + 2];
 		if ($l ne $xl) {
 			print STDERR "Sync state entry mismatch: '$l' instead of '$xl'.\n";
 			return 1;
 		}
+		$i += 3;
 	}
-	if (@T) {
-		print STDERR "Missing sync state entry: '".shift(@T)." ".shift(@T)." ".shift(@T)."'.\n";
+	if ($i < @$t) {
+		print STDERR "Missing sync state entry: '".$$t[$i]." ".$$t[$i + 1]." ".$$t[$i + 2]."'.\n";
 		return 1;
 	}
 	return 0;
 }
 
-# $statefile, \@chan_state
+# $state_file, \@chan_state
 sub ckchan($$)
 {
-	my ($F, $cs) = @_;
-	my $rslt = ckstate($F, @{ $$cs[2] });
-	$rslt |= &ckbox("master", @{ $$cs[0] });
-	$rslt |= &ckbox("slave", @{ $$cs[1] });
+	my ($fn, $cs) = @_;
+	my $rslt = ckstate($fn, $$cs[2]);
+	$rslt |= ckbox("far", $$cs[0]);
+	$rslt |= ckbox("near", $$cs[1]);
 	return $rslt;
 }
 
-sub printbox($$@)
+# \@box_state
+sub printbox($)
 {
-	my ($bn, $mu, @ms) = @_;
+	my ($bs) = @_;
 
-	print " [ $mu,\n   ";
+	print " [ $$bs[0],\n   ";
 	my $frst = 1;
-	while (@ms) {
+	for (my $i = 1; $i < @$bs; $i += 3) {
 		if ($frst) {
 			$frst = 0;
 		} else {
 			print ", ";
 		}
-		print shift(@ms).", ".shift(@ms).", \"".shift(@ms)."\"";
+		print mn($$bs[$i]).", ".$$bs[$i + 1].", \"".$$bs[$i + 2]."\"";
 	}
 	print " ],\n";
 }
 
-# @syncstate
-sub printstate(@)
+# \@sync_state
+sub printstate($)
 {
-	my (@t) = @_;
+	my ($t) = @_;
 
-	print " [ ".shift(@t).", ".shift(@t).", ".shift(@t).",\n   ";
+	print " [ ".$$t[0].", ".$$t[1].", ".$$t[2].",\n   ";
 	my $frst = 1;
-	while (@t) {
+	for (my $i = 3; $i < @$t; $i += 3) {
 		if ($frst) {
 			$frst = 0;
 		} else {
 			print ", ";
 		}
-		print((shift(@t) // "??").", ".(shift(@t) // "??").", \"".(shift(@t) // "??")."\"");
+		print(($$t[$i] // "??").", ".($$t[$i + 1] // "??").", \"".($$t[$i + 2] // "??")."\"");
 	}
 	print " ],\n";
 }
@@ -619,9 +673,9 @@ sub printchan($)
 {
 	my ($cs) = @_;
 
-	&printbox("master", @{ $$cs[0] });
-	&printbox("slave", @{ $$cs[1] });
-	printstate(@{ $$cs[2] });
+	printbox($$cs[0]);
+	printbox($$cs[1]);
+	printstate($$cs[2]);
 }
 
 sub readfile($)
@@ -631,112 +685,122 @@ sub readfile($)
 	open(FILE, $file) or return;
 	my @nj = <FILE>;
 	close FILE;
-	return @nj;
+	return \@nj;
 }
 
-# $title, \@source_state, \@target_state, @channel_configs
-sub test($$$@)
+# $run_async, \@source_state, \@target_state, \@channel_configs
+sub test_impl($$$$)
 {
-	my ($ttl, $sx, $tx, @sfx) = @_;
+	my ($async, $sx, $tx, $sfx) = @_;
 
-	return 0 if (scalar(@ARGV) && !grep { $_ eq $ttl } @ARGV);
-	print "Testing: ".$ttl." ...\n";
-	&writecfg(@sfx);
+	mkchan($$sx[0], $$sx[1], $$sx[2]);
 
-	mkchan($$sx[0], $$sx[1], @{ $$sx[2] });
-
-	my ($xc, @ret) = runsync("-J", "1-initial.log");
-	if ($xc || ckchan("slave/.mbsyncstate.new", $tx)) {
+	my ($xc, $ret) = runsync($async, "-Tj", "1-initial.log");
+	if ($xc || ckchan("near/.mbsyncstate.new", $tx)) {
 		print "Input:\n";
 		printchan($sx);
 		print "Options:\n";
-		print " [ ".join(", ", map('"'.qm($_).'"', @sfx))." ]\n";
+		print " [ ".join(", ", map('"'.qm($_).'"', @$sfx))." ]\n";
 		if (!$xc) {
 			print "Expected result:\n";
 			printchan($tx);
 			print "Actual result:\n";
-			showchan("slave/.mbsyncstate.new");
+			showchan("near/.mbsyncstate.new");
 		}
 		print "Debug output:\n";
-		print @ret;
+		print @$ret;
 		exit 1;
 	}
 
-	my @nj = readfile("slave/.mbsyncstate.journal");
-	my ($jxc, @jret) = runsync("-0 --no-expunge", "2-replay.log");
-	if ($jxc || ckstate("slave/.mbsyncstate", @{ $$tx[2] })) {
+	my $nj = readfile("near/.mbsyncstate.journal");
+	my ($jxc, $jret) = runsync($async, "-0 --no-expunge", "2-replay.log");
+	if ($jxc || ckstate("near/.mbsyncstate", $$tx[2])) {
 		print "Journal replay failed.\n";
 		print "Options:\n";
-		print " [ ".join(", ", map('"'.qm($_).'"', @sfx))." ], [ \"-0\", \"--no-expunge\" ]\n";
+		print " [ ".join(", ", map('"'.qm($_).'"', @$sfx))." ], [ \"-0\", \"--no-expunge\" ]\n";
 		print "Old State:\n";
-		printstate(@{ $$sx[2] });
-		print "Journal:\n".join("", @nj)."\n";
+		printstate($$sx[2]);
+		print "Journal:\n".join("", @$nj)."\n";
 		if (!$jxc) {
 			print "Expected New State:\n";
-			printstate(@{ $$tx[2] });
+			printstate($$tx[2]);
 			print "New State:\n";
-			showstate("slave/.mbsyncstate");
+			showstate("near/.mbsyncstate");
 		}
 		print "Debug output:\n";
-		print @jret;
+		print @$jret;
 		exit 1;
 	}
 
-	my ($ixc, @iret) = runsync("", "3-verify.log");
-	if ($ixc || ckchan("slave/.mbsyncstate", $tx)) {
+	my ($ixc, $iret) = runsync($async, "", "3-verify.log");
+	if ($ixc || ckchan("near/.mbsyncstate", $tx)) {
 		print "Idempotence verification run failed.\n";
 		print "Input == Expected result:\n";
 		printchan($tx);
 		print "Options:\n";
-		print " [ ".join(", ", map('"'.qm($_).'"', @sfx))." ]\n";
+		print " [ ".join(", ", map('"'.qm($_).'"', @$sfx))." ]\n";
 		if (!$ixc) {
 			print "Actual result:\n";
-			showchan("slave/.mbsyncstate");
+			showchan("near/.mbsyncstate");
 		}
 		print "Debug output:\n";
-		print @iret;
+		print @$iret;
 		exit 1;
 	}
 
-	rmtree "slave";
-	rmtree "master";
+	rmtree "near";
+	rmtree "far";
 
-	my $njl = (@nj - 1) * 2;
-	for (my $l = 2; $l < $njl; $l++) {
-		mkchan($$sx[0], $$sx[1], @{ $$sx[2] });
+	my $njl = (@$nj - 1) * 2;
+	for (my $l = 1; $l <= $njl; $l++) {
+		mkchan($$sx[0], $$sx[1], $$sx[2]);
 
-		my ($nxc, @nret) = runsync("-J$l", "4-interrupt.log");
+		my ($nxc, $nret) = runsync($async, "-Tj$l", "4-interrupt.log");
 		if ($nxc != (100 + ($l & 1)) << 8) {
 			print "Interrupting at step $l/$njl failed.\n";
 			print "Debug output:\n";
-			print @nret;
+			print @$nret;
 			exit 1;
 		}
 
-		($nxc, @nret) = runsync("-J", "5-resume.log");
-		if ($nxc || ckchan("slave/.mbsyncstate.new", $tx)) {
+		($nxc, $nret) = runsync($async, "-Tj", "5-resume.log");
+		if ($nxc || ckchan("near/.mbsyncstate.new", $tx)) {
 			print "Resuming from step $l/$njl failed.\n";
 			print "Input:\n";
 			printchan($sx);
 			print "Options:\n";
-			print " [ ".join(", ", map('"'.qm($_).'"', @sfx))." ]\n";
-			my @nnj = readfile("slave/.mbsyncstate.journal");
-			print "Journal:\n".join("", @nnj[0..($l / 2 - 1)])."-------\n".join("", @nnj[($l / 2)..$#nnj])."\n";
-			print "Full journal:\n".join("", @nj)."\n";
+			print " [ ".join(", ", map('"'.qm($_).'"', @$sfx))." ]\n";
+			my $nnj = readfile("near/.mbsyncstate.journal");
+			my $ln = int($l / 2);
+			print "Journal:\n".join("", @$nnj[0..$ln])."-------\n".join("", @$nnj[($ln + 1)..$#$nnj])."\n";
+			print "Full journal:\n".join("", @$nj)."\n";
 			if (!$nxc) {
 				print "Expected result:\n";
 				printchan($tx);
 				print "Actual result:\n";
-				showchan("slave/.mbsyncstate");
+				showchan("near/.mbsyncstate.new");
 			}
 			print "Debug output:\n";
-			print @nret;
+			print @$nret;
 			exit 1;
 		}
 
-		rmtree "slave";
-		rmtree "master";
+		rmtree "near";
+		rmtree "far";
 	}
+}
+
+# $title, \@source_state, \@target_state, \@channel_configs
+sub test($$$$)
+{
+	my ($ttl, $sx, $tx, $sfx) = @_;
+
+	return 0 if (scalar(@ARGV) && !grep { $_ eq $ttl } @ARGV);
+	print "Testing: ".$ttl." ...\n";
+	writecfg($sfx);
+
+	test_impl(0, $sx, $tx, $sfx);
+	test_impl(1, $sx, $tx, $sfx);
 
 	killcfg();
 }

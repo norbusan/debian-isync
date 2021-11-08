@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-store_conf_t *stores;
+static store_conf_t *stores;
 
 char *
 get_arg( conffile_t *cfile, int required, int *comment )
@@ -54,7 +54,7 @@ get_arg( conffile_t *cfile, int required, int *comment )
 			error( "%s:%d: parameter missing\n", cfile->file, cfile->line );
 			cfile->err = 1;
 		}
-		ret = 0;
+		ret = NULL;
 	} else {
 		for (escaped = 0, quoted = 0, ret = t = p; c; c = *p) {
 			p++;
@@ -74,19 +74,19 @@ get_arg( conffile_t *cfile, int required, int *comment )
 		if (escaped) {
 			error( "%s:%d: unterminated escape sequence\n", cfile->file, cfile->line );
 			cfile->err = 1;
-			ret = 0;
+			ret = NULL;
 		}
 		if (quoted) {
 			error( "%s:%d: missing closing quote\n", cfile->file, cfile->line );
 			cfile->err = 1;
-			ret = 0;
+			ret = NULL;
 		}
 	}
 	cfile->rest = p;
 	return ret;
 }
 
-int
+char
 parse_bool( conffile_t *cfile )
 {
 	if (!strcasecmp( cfile->val, "yes" ) ||
@@ -121,13 +121,13 @@ parse_int( conffile_t *cfile )
 	return ret;
 }
 
-int
+uint
 parse_size( conffile_t *cfile )
 {
 	char *p;
-	int ret;
+	uint ret;
 
-	ret = strtol (cfile->val, &p, 10);
+	ret = strtoul( cfile->val, &p, 10 );
 	if (*p == 'k' || *p == 'K')
 		ret *= 1024, p++;
 	else if (*p == 'm' || *p == 'M')
@@ -174,21 +174,21 @@ getopt_helper( conffile_t *cfile, int *cops, channel_conf_t *conf )
 			else if (!strcasecmp( "Flags", arg ))
 				*cops |= OP_FLAGS;
 			else if (!strcasecmp( "PullReNew", arg ))
-				conf->ops[S] |= OP_RENEW;
+				conf->ops[N] |= OP_RENEW;
 			else if (!strcasecmp( "PullNew", arg ))
-				conf->ops[S] |= OP_NEW;
+				conf->ops[N] |= OP_NEW;
 			else if (!strcasecmp( "PullDelete", arg ))
-				conf->ops[S] |= OP_DELETE;
+				conf->ops[N] |= OP_DELETE;
 			else if (!strcasecmp( "PullFlags", arg ))
-				conf->ops[S] |= OP_FLAGS;
+				conf->ops[N] |= OP_FLAGS;
 			else if (!strcasecmp( "PushReNew", arg ))
-				conf->ops[M] |= OP_RENEW;
+				conf->ops[F] |= OP_RENEW;
 			else if (!strcasecmp( "PushNew", arg ))
-				conf->ops[M] |= OP_NEW;
+				conf->ops[F] |= OP_NEW;
 			else if (!strcasecmp( "PushDelete", arg ))
-				conf->ops[M] |= OP_DELETE;
+				conf->ops[F] |= OP_DELETE;
 			else if (!strcasecmp( "PushFlags", arg ))
-				conf->ops[M] |= OP_FLAGS;
+				conf->ops[F] |= OP_FLAGS;
 			else if (!strcasecmp( "All", arg ) || !strcasecmp( "Full", arg ))
 				*cops |= XOP_PULL|XOP_PUSH;
 			else if (strcasecmp( "None", arg ) && strcasecmp( "Noop", arg )) {
@@ -196,8 +196,8 @@ getopt_helper( conffile_t *cfile, int *cops, channel_conf_t *conf )
 				       cfile->file, cfile->line, arg );
 				cfile->err = 1;
 			}
-		while ((arg = get_arg( cfile, ARG_OPTIONAL, 0 )));
-		conf->ops[M] |= XOP_HAVE_TYPE;
+		while ((arg = get_arg( cfile, ARG_OPTIONAL, NULL )));
+		conf->ops[F] |= XOP_HAVE_TYPE;
 	} else if (!strcasecmp( "SyncState", cfile->cmd ))
 		conf->sync_state = expand_strdup( cfile->val );
 	else if (!strcasecmp( "CopyArrivalDate", cfile->cmd ))
@@ -214,17 +214,23 @@ getopt_helper( conffile_t *cfile, int *cops, channel_conf_t *conf )
 				do {
 					if (!strcasecmp( "Both", arg )) {
 						*cops |= op;
-					} else if (!strcasecmp( "Master", arg )) {
-						conf->ops[M] |= op;
-					} else if (!strcasecmp( "Slave", arg )) {
-						conf->ops[S] |= op;
+					} else if (!strcasecmp( "Far", arg )) {
+						conf->ops[F] |= op;
+					} else if (!strcasecmp( "Master", arg )) {  // Pre-1.4 legacy
+						conf->ops[F] |= op;
+						cfile->ms_warn = 1;
+					} else if (!strcasecmp( "Near", arg )) {
+						conf->ops[N] |= op;
+					} else if (!strcasecmp( "Slave", arg )) {  // Pre-1.4 legacy
+						conf->ops[N] |= op;
+						cfile->ms_warn = 1;
 					} else if (strcasecmp( "None", arg )) {
 						error( "%s:%d: invalid %s arg '%s'\n",
 						       cfile->file, cfile->line, boxOps[i].name, arg );
 						cfile->err = 1;
 					}
-				} while ((arg = get_arg( cfile, ARG_OPTIONAL, 0 )));
-				conf->ops[M] |= op * (XOP_HAVE_EXPUNGE / OP_EXPUNGE);
+				} while ((arg = get_arg( cfile, ARG_OPTIONAL, NULL )));
+				conf->ops[F] |= op * (XOP_HAVE_EXPUNGE / OP_EXPUNGE);
 				return 1;
 			}
 		}
@@ -239,7 +245,7 @@ getcline( conffile_t *cfile )
 	char *arg;
 	int comment;
 
-	if (cfile->rest && (arg = get_arg( cfile, ARG_OPTIONAL, 0 ))) {
+	if (cfile->rest && (arg = get_arg( cfile, ARG_OPTIONAL, NULL ))) {
 		error( "%s:%d: excess token '%s'\n", cfile->file, cfile->line, arg );
 		cfile->err = 1;
 	}
@@ -251,7 +257,7 @@ getcline( conffile_t *cfile )
 				continue;
 			return 1;
 		}
-		if (!(cfile->val = get_arg( cfile, ARG_REQUIRED, 0 )))
+		if (!(cfile->val = get_arg( cfile, ARG_REQUIRED, NULL )))
 			continue;
 		return 1;
 	}
@@ -265,25 +271,25 @@ merge_ops( int cops, int ops[] )
 	int aops, op;
 	uint i;
 
-	aops = ops[M] | ops[S];
-	if (ops[M] & XOP_HAVE_TYPE) {
+	aops = ops[F] | ops[N];
+	if (ops[F] & XOP_HAVE_TYPE) {
 		if (aops & OP_MASK_TYPE) {
 			if (aops & cops & OP_MASK_TYPE) {
 			  cfl:
 				error( "Conflicting Sync args specified.\n" );
 				return 1;
 			}
-			ops[M] |= cops & OP_MASK_TYPE;
-			ops[S] |= cops & OP_MASK_TYPE;
+			ops[F] |= cops & OP_MASK_TYPE;
+			ops[N] |= cops & OP_MASK_TYPE;
 			if (cops & XOP_PULL) {
-				if (ops[S] & OP_MASK_TYPE)
+				if (ops[N] & OP_MASK_TYPE)
 					goto cfl;
-				ops[S] |= OP_MASK_TYPE;
+				ops[N] |= OP_MASK_TYPE;
 			}
 			if (cops & XOP_PUSH) {
-				if (ops[M] & OP_MASK_TYPE)
+				if (ops[F] & OP_MASK_TYPE)
 					goto cfl;
-				ops[M] |= OP_MASK_TYPE;
+				ops[F] |= OP_MASK_TYPE;
 			}
 		} else if (cops & (OP_MASK_TYPE|XOP_MASK_DIR)) {
 			if (!(cops & OP_MASK_TYPE))
@@ -291,27 +297,27 @@ merge_ops( int cops, int ops[] )
 			else if (!(cops & XOP_MASK_DIR))
 				cops |= XOP_PULL|XOP_PUSH;
 			if (cops & XOP_PULL)
-				ops[S] |= cops & OP_MASK_TYPE;
+				ops[N] |= cops & OP_MASK_TYPE;
 			if (cops & XOP_PUSH)
-				ops[M] |= cops & OP_MASK_TYPE;
+				ops[F] |= cops & OP_MASK_TYPE;
 		}
 	}
 	for (i = 0; i < as(boxOps); i++) {
 		op = boxOps[i].op;
-		if (ops[M] & (op * (XOP_HAVE_EXPUNGE / OP_EXPUNGE))) {
+		if (ops[F] & (op * (XOP_HAVE_EXPUNGE / OP_EXPUNGE))) {
 			if (aops & cops & op) {
 				error( "Conflicting %s args specified.\n", boxOps[i].name );
 				return 1;
 			}
-			ops[M] |= cops & op;
-			ops[S] |= cops & op;
+			ops[F] |= cops & op;
+			ops[N] |= cops & op;
 		}
 	}
 	return 0;
 }
 
 int
-load_config( const char *where, int pseudo )
+load_config( const char *where )
 {
 	conffile_t cfile;
 	store_conf_t *store, **storeapp = &stores;
@@ -319,19 +325,18 @@ load_config( const char *where, int pseudo )
 	group_conf_t *group, **groupapp = &groups;
 	string_list_t *chanlist, **chanlistapp;
 	char *arg, *p;
-	int len, cops, gcops, max_size, ms, i;
+	uint len, max_size;
+	int cops, gcops, glob_ok, fn, i;
 	char path[_POSIX_PATH_MAX];
 	char buf[1024];
 
 	if (!where) {
-		assert( !pseudo );
 		nfsnprintf( path, sizeof(path), "%s/." EXE "rc", Home );
 		cfile.file = path;
 	} else
 		cfile.file = where;
 
-	if (!pseudo)
-		info( "Reading configuration file %s\n", cfile.file );
+	info( "Reading configuration file %s\n", cfile.file );
 
 	if (!(cfile.fp = fopen( cfile.file, "r" ))) {
 		sys_error( "Cannot open config file '%s'", cfile.file );
@@ -342,9 +347,11 @@ load_config( const char *where, int pseudo )
 	cfile.bufl = sizeof(buf) - 1;
 	cfile.line = 0;
 	cfile.err = 0;
-	cfile.rest = 0;
+	cfile.ms_warn = 0;
+	cfile.rest = NULL;
 
 	gcops = 0;
+	glob_ok = 1;
 	global_conf.expire_unread = -1;
   reloop:
 	while (getcline( &cfile )) {
@@ -354,11 +361,14 @@ load_config( const char *where, int pseudo )
 			if (drivers[i]->parse_store( &cfile, &store )) {
 				if (store) {
 					if (!store->max_size)
-						store->max_size = INT_MAX;
+						store->max_size = UINT_MAX;
+					if (!store->flat_delim)
+						store->flat_delim = "";
 					*storeapp = store;
 					storeapp = &store->next;
-					*storeapp = 0;
+					*storeapp = NULL;
 				}
+				glob_ok = 0;
 				goto reloop;
 			}
 		if (!strcasecmp( "Channel", cfile.cmd ))
@@ -369,7 +379,7 @@ load_config( const char *where, int pseudo )
 			channel->expire_unread = global_conf.expire_unread;
 			channel->use_internal_date = global_conf.use_internal_date;
 			cops = 0;
-			max_size = -1;
+			max_size = UINT_MAX;
 			while (getcline( &cfile ) && cfile.cmd) {
 				if (!strcasecmp( "MaxSize", cfile.cmd ))
 					max_size = parse_size( &cfile );
@@ -379,13 +389,21 @@ load_config( const char *where, int pseudo )
 					arg = cfile.val;
 					do
 						add_string_list( &channel->patterns, arg );
-					while ((arg = get_arg( &cfile, ARG_OPTIONAL, 0 )));
+					while ((arg = get_arg( &cfile, ARG_OPTIONAL, NULL )));
 				}
-				else if (!strcasecmp( "Master", cfile.cmd )) {
-					ms = M;
+				else if (!strcasecmp( "Far", cfile.cmd )) {
+					fn = F;
 					goto linkst;
-				} else if (!strcasecmp( "Slave", cfile.cmd )) {
-					ms = S;
+				} else if (!strcasecmp( "Master", cfile.cmd )) {  // Pre-1.4 legacy
+					fn = F;
+					goto olinkst;
+				} else if (!strcasecmp( "Near", cfile.cmd )) {
+					fn = N;
+					goto linkst;
+				} else if (!strcasecmp( "Slave", cfile.cmd )) {  // Pre-1.4 legacy
+					fn = N;
+				  olinkst:
+					cfile.ms_warn = 1;
 				  linkst:
 					if (*cfile.val != ':' || !(p = strchr( cfile.val + 1, ':' ))) {
 						error( "%s:%d: malformed mailbox spec\n",
@@ -396,7 +414,7 @@ load_config( const char *where, int pseudo )
 					*p = 0;
 					for (store = stores; store; store = store->next)
 						if (!strcmp( store->name, cfile.val + 1 )) {
-							channel->stores[ms] = store;
+							channel->stores[fn] = store;
 							goto stpcom;
 						}
 					error( "%s:%d: unknown store '%s'\n",
@@ -405,29 +423,32 @@ load_config( const char *where, int pseudo )
 					continue;
 				  stpcom:
 					if (*++p)
-						channel->boxes[ms] = nfstrdup( p );
+						channel->boxes[fn] = nfstrdup( p );
 				} else if (!getopt_helper( &cfile, &cops, channel )) {
-					error( "%s:%d: unknown keyword '%s'\n", cfile.file, cfile.line, cfile.cmd );
+					error( "%s:%d: keyword '%s' is not recognized in Channel sections\n",
+					       cfile.file, cfile.line, cfile.cmd );
 					cfile.err = 1;
 				}
 			}
-			if (!channel->stores[M]) {
-				error( "channel '%s' refers to no master store\n", channel->name );
+			if (!channel->stores[F]) {
+				error( "channel '%s' refers to no far side store\n", channel->name );
 				cfile.err = 1;
-			} else if (!channel->stores[S]) {
-				error( "channel '%s' refers to no slave store\n", channel->name );
+			} else if (!channel->stores[N]) {
+				error( "channel '%s' refers to no near side store\n", channel->name );
 				cfile.err = 1;
 			} else if (merge_ops( cops, channel->ops ))
 				cfile.err = 1;
 			else {
-				if (max_size >= 0) {
+				if (max_size != UINT_MAX) {
 					if (!max_size)
-						max_size = INT_MAX;
-					channel->stores[M]->max_size = channel->stores[S]->max_size = max_size;
+						max_size = UINT_MAX;
+					channel->stores[F]->max_size = channel->stores[N]->max_size = max_size;
 				}
 				*channelapp = channel;
 				channelapp = &channel->next;
 			}
+			glob_ok = 0;
+			goto reloop;
 		}
 		else if (!strcasecmp( "Group", cfile.cmd ))
 		{
@@ -435,21 +456,19 @@ load_config( const char *where, int pseudo )
 			group->name = nfstrdup( cfile.val );
 			*groupapp = group;
 			groupapp = &group->next;
-			*groupapp = 0;
+			*groupapp = NULL;
 			chanlistapp = &group->channels;
-			*chanlistapp = 0;
-			while ((arg = get_arg( &cfile, ARG_OPTIONAL, 0 ))) {
+			*chanlistapp = NULL;
+			while ((arg = get_arg( &cfile, ARG_OPTIONAL, NULL ))) {
 			  addone:
 				len = strlen( arg );
 				chanlist = nfmalloc( sizeof(*chanlist) + len );
 				memcpy( chanlist->string, arg, len + 1 );
 				*chanlistapp = chanlist;
 				chanlistapp = &chanlist->next;
-				*chanlistapp = 0;
+				*chanlistapp = NULL;
 			}
-			while (getcline( &cfile )) {
-				if (!cfile.cmd)
-					goto reloop;
+			while (getcline( &cfile ) && cfile.cmd) {
 				if (!strcasecmp( "Channel", cfile.cmd ) ||
 				    !strcasecmp( "Channels", cfile.cmd ))
 				{
@@ -458,12 +477,13 @@ load_config( const char *where, int pseudo )
 				}
 				else
 				{
-					error( "%s:%d: unknown keyword '%s'\n",
+					error( "%s:%d: keyword '%s' is not recognized in Group sections\n",
 					       cfile.file, cfile.line, cfile.cmd );
 					cfile.err = 1;
 				}
 			}
-			break;
+			glob_ok = 0;
+			goto reloop;
 		}
 		else if (!strcasecmp( "FSync", cfile.cmd ))
 		{
@@ -485,14 +505,14 @@ load_config( const char *where, int pseudo )
 		else if (!strcasecmp( "BufferLimit", cfile.cmd ))
 		{
 			BufferLimit = parse_size( &cfile );
-			if (BufferLimit <= 0) {
-				error( "%s:%d: BufferLimit must be positive\n", cfile.file, cfile.line );
+			if (!BufferLimit) {
+				error( "%s:%d: BufferLimit cannot be zero\n", cfile.file, cfile.line );
 				cfile.err = 1;
 			}
 		}
 		else if (!getopt_helper( &cfile, &gcops, &global_conf ))
 		{
-			error( "%s:%d: unknown section keyword '%s'\n",
+			error( "%s:%d: '%s' is not a recognized section-starting or global keyword\n",
 			       cfile.file, cfile.line, cfile.cmd );
 			cfile.err = 1;
 			while (getcline( &cfile ))
@@ -500,12 +520,17 @@ load_config( const char *where, int pseudo )
 					goto reloop;
 			break;
 		}
+		if (!glob_ok) {
+			error( "%s:%d: global options may not follow sections\n",
+			       cfile.file, cfile.line );
+			cfile.err = 1;
+		}
 	}
 	fclose (cfile.fp);
+	if (cfile.ms_warn)
+		warn( "Notice: Master/Slave are deprecated; use Far/Near instead.\n" );
 	cfile.err |= merge_ops( gcops, global_conf.ops );
 	if (!global_conf.sync_state)
 		global_conf.sync_state = expand_strdup( "~/." EXE "/" );
-	if (!cfile.err && pseudo)
-		unlink( where );
 	return cfile.err;
 }
