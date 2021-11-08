@@ -1,8 +1,7 @@
 Source: isync
 Section: mail
 Priority: optional
-Maintainer: Nicolas Boullis <nboullis@debian.org>
-Uploaders: Theodore Y. Ts'o <tytso@mit.edu>
+Maintainer: Norbert Preining <norbert@preining.info>
 Standards-Version: 4.2.1
 Build-Depends: debhelper (>= 11),
  libdb-dev,
