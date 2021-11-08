@@ -1,15 +1,65 @@
-AC_INIT([isync], [1.3.0])
+AC_INIT([isync], [1.4.3])
 AC_CONFIG_HEADERS([autodefs.h])
-AM_INIT_AUTOMAKE
 
+AC_CANONICAL_TARGET
+
+AM_INIT_AUTOMAKE
 AM_MAINTAINER_MODE
 
-AC_PROG_CC_C99
+AC_PROG_CC
 if test "$GCC" = yes; then
-    CFLAGS="$CFLAGS -pipe -W -Wall -Wshadow -Wstrict-prototypes -std=c99 -pedantic -Wno-overlength-strings"
+    warnings="
+        -Wall -Wextra
+        -Wshadow
+        -Wcast-qual
+        -Wformat=2 -Wformat-signedness -Wformat-nonliteral
+        -Wstrict-prototypes
+
+        -Wno-overlength-strings
+    "
+    CFLAGS="$CFLAGS -pipe -std=c11 -pedantic $(echo $warnings)"
 fi
 
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([
+void fkt(void)
+{
+    int a = 42;  // c99 comment
+
+    for (int i = 0; i < a; i++) {}  // declaration inside for()
+    int b;  // declaration after code
+}
+
+// c11 anonymous structs/unions
+struct base {
+    int a;
+};
+union deriv {
+    struct base gen;
+    struct {
+        int a;
+        int b;
+    };
+};
+])], , [AC_MSG_ERROR([compiler does not support required C11 features])])
+
 CPPFLAGS="$CPPFLAGS -D_GNU_SOURCE"
+
+AC_CHECK_PROG(PERL, perl, perl)
+if test "x$PERL" = "x"; then
+    AC_MSG_ERROR([perl not found])
+fi
+
+need_perl=5.14
+AC_CACHE_CHECK([whether perl is recent enough], ob_cv_perl_ver, [
+    if $PERL -e "use v$need_perl;" 2> /dev/null; then
+        ob_cv_perl_ver=yes
+    else
+        ob_cv_perl_ver=no
+    fi
+])
+if test "x$ob_cv_perl_ver" = "xno"; then
+    AC_MSG_ERROR([perl is too old, need v$need_perl])
+fi
 
 AC_CACHE_CHECK([whether strftime supports %z], ob_cv_strftime_z,
     [AC_TRY_RUN(
@@ -28,7 +78,7 @@ if test "x$ob_cv_strftime_z" = x"no"; then
     AC_MSG_ERROR([libc lacks necessary feature])
 fi
 
-AC_CHECK_HEADERS(sys/poll.h sys/select.h)
+AC_CHECK_HEADERS(poll.h sys/select.h)
 AC_CHECK_FUNCS(vasprintf strnlen memrchr timegm)
 
 AC_CHECK_LIB(socket, socket, [SOCK_LIBS="-lsocket"])
@@ -77,7 +127,7 @@ if test "x$ob_cv_with_ssl" != xno; then
     sav_LDFLAGS=$LDFLAGS
     LDFLAGS="$LDFLAGS $SSL_LDFLAGS"
     AC_CHECK_LIB(dl, dlopen, [LIBDL=-ldl])
-    AC_CHECK_LIB(crypto, CRYPTO_lock, [LIBCRYPTO=-lcrypto])
+    AC_CHECK_LIB(crypto, X509_cmp, [LIBCRYPTO=-lcrypto])
     AC_CHECK_LIB(ssl, SSL_connect,
                  [SSL_LIBS="-lssl $LIBCRYPTO $LIBDL" have_ssl_paths=yes])
     LDFLAGS=$sav_LDFLAGS
@@ -170,16 +220,32 @@ if test "x$ob_cv_with_zlib" != xno; then
   )
 fi
 
-AC_ARG_ENABLE(compat,
-  AC_HELP_STRING([--disable-compat], [don't include isync compatibility wrapper [no]]),
-  [ob_cv_enable_compat=$enableval])
-if test "x$ob_cv_enable_compat" != xno; then
-  AC_CHECK_FUNCS(getopt_long)
-fi
-AM_CONDITIONAL(with_compat, test "x$ob_cv_enable_compat" != xno -a "x$ac_cv_berkdb4" = xyes)
 AM_CONDITIONAL(with_mdconvert, test "x$ac_cv_berkdb4" = xyes)
 
-AC_CONFIG_FILES([Makefile src/Makefile src/compat/Makefile isync.spec])
+case $target_os in
+darwin*)
+    darwin=yes
+;;
+*)
+    darwin=no
+;;
+esac
+
+AC_ARG_WITH(
+    macos-keychain,
+    [AS_HELP_STRING([--with-macos-keychain], [Support macOS keychain])],
+    [have_macos_keychain=$withval],
+    [have_macos_keychain=$darwin])
+if test "x$have_macos_keychain" != xno; then
+    if test $darwin = no; then
+        AC_MSG_ERROR([Cannot use macOS Keychain outside macOS.])
+    fi
+    have_macos_keychain=yes
+    AC_DEFINE(HAVE_MACOS_KEYCHAIN, 1, [Define to 1 if you have the macOS Keychain Services API.])
+    AC_SUBST(KEYCHAIN_LIBS, ["-Wl,-framework,Security,-framework,CoreFoundation"])
+fi
+
+AC_CONFIG_FILES([Makefile src/Makefile isync.spec])
 AC_OUTPUT
 
 AC_MSG_RESULT()
@@ -202,5 +268,12 @@ if test "x$ac_cv_berkdb4" = xyes; then
     AC_MSG_RESULT([Using Berkeley DB])
 else
     AC_MSG_RESULT([Not using Berkeley DB])
+fi
+if test $darwin = yes; then
+    if test "x$have_macos_keychain" = xyes; then
+        AC_MSG_RESULT([Using macOS Keychain])
+    else
+        AC_MSG_RESULT([Not using macOS Keychain])
+    fi
 fi
 AC_MSG_RESULT()

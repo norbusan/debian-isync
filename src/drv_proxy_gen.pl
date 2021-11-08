@@ -50,6 +50,7 @@ while (<$ins>) {
 			$defines{$define} = $conts;
 			$define = undef;
 		} else {
+			($_ eq "\n") or s/^\t// or die("DEFINE content is not indented: $_");
 			$conts .= $_;
 		}
 	} else {
@@ -109,6 +110,7 @@ sub type_to_format($)
 {
 	$_ = shift;
 	s/xint /\%\#x/g;
+	s/uint /\%u/g;
 	s/int /\%d/g;
 	s/const char \*/\%s/g;
 	return $_;
@@ -121,13 +123,19 @@ sub make_format($)
 	return $_;
 }
 
+sub indent($$)
+{
+	my ($str, $indent) = @_;
+	return $str =~ s,^(?=.),$indent,smgr;
+}
+
 open(my $outh, ">".$out_source) or die("Cannot create $out_source: $!\n");
 
 for (@ptypes) {
 	/^([\w* ]+)\(\*(\w+)\)\( (.*) \)$/ or die("Cannot parse prototype '$_'\n");
 	my ($cmd_type, $cmd_name, $cmd_args) = ($1, $2, $3);
 	if (defined($excluded{$cmd_name})) {
-		push @cmd_table, "0";
+		push @cmd_table, "NULL";
 		next;
 	}
 	push @cmd_table, "proxy_$cmd_name";
@@ -136,34 +144,55 @@ for (@ptypes) {
 	$replace{'name'} = $cmd_name;
 	$replace{'type'} = $cmd_type;
 	$cmd_args =~ s/^store_t \*ctx// or die("Arguments '$cmd_args' don't start with 'store_t *ctx'\n");
-	if ($cmd_type eq "void " && $cmd_args =~ s/, void \(\*cb\)\( (.*)void \*aux \), void \*aux$//) {
-		my $cmd_cb_args = $1;
-		$replace{'decl_cb_args'} = $cmd_cb_args;
-		$replace{'pass_cb_args'} = make_args($cmd_cb_args);
-		my $cmd_print_cb_args = $cmd_cb_args =~ s/(.*), $/, $1/r;
-		$replace{'print_pass_cb_args'} = make_args($cmd_print_cb_args);
-		$replace{'print_fmt_cb_args'} = make_format($cmd_print_cb_args);
-		$template = "CALLBACK";
-	} elsif ($cmd_name =~ /^get_/) {
+	if ($cmd_name =~ /^get_/) {
 		$template = "GETTER";
 		$replace{'fmt'} = type_to_format($cmd_type);
-	} elsif ($cmd_type eq "void ") {
-		$template = "REGULAR_VOID";
 	} else {
-		$template = "REGULAR";
-		$replace{'fmt'} = type_to_format($cmd_type);
+		if ($cmd_type eq "void " && $cmd_args =~ s/, void \(\*cb\)\( (.*)void \*aux \), void \*aux$//) {
+			my $cmd_cb_args = $1;
+			if (length($cmd_cb_args)) {
+				$replace{'decl_cb_args'} = $cmd_cb_args;
+				my $r_cmd_cb_args = $cmd_cb_args;
+				$r_cmd_cb_args =~ s/^int sts, // or die("Callback arguments of $cmd_name don't start with sts.\n");
+				$replace{'decl_cb_state'} = $r_cmd_cb_args =~ s/, /\;\n/gr;
+				my $pass_cb_args = make_args($cmd_cb_args);
+				$replace{'save_cb_args'} = $pass_cb_args =~ s/([^,]+), /cmd->$1 = $1\;\n/gr;
+				$pass_cb_args =~ s/([^, ]+)/cmd->$1/g;
+				$replace{'pass_cb_args'} = $pass_cb_args;
+				$replace{'print_pass_cb_args'} = $pass_cb_args =~ s/(.*), $/, $1/r;
+				$replace{'print_fmt_cb_args'} = make_format($cmd_cb_args =~ s/(.*), $/, $1/r);
+				$replace{'gen_cmd_t'} = "gen_sts_cmd_t";
+				$replace{'GEN_CMD'} = "GEN_STS_CMD\n";
+				$replace{'gen_cmd'} = "&cmd->gen.gen";
+			} else {
+				$replace{'gen_cmd_t'} = "gen_cmd_t";
+				$replace{'GEN_CMD'} = "GEN_CMD\n";
+				$replace{'gen_cmd'} = "&cmd->gen";
+			}
+			$replace{'checked'} //= '0';
+			$template = "CALLBACK";
+		} elsif ($cmd_type eq "void ") {
+			$template = "REGULAR_VOID";
+		} else {
+			$template = "REGULAR";
+			$replace{'fmt'} = type_to_format($cmd_type);
+		}
+		$replace{'decl_args'} = $cmd_args;
+		$replace{'print_pass_args'} = $replace{'pass_args'} = make_args($cmd_args);
+		$replace{'print_fmt_args'} = make_format($cmd_args);
 	}
-	$replace{'decl_args'} = $cmd_args;
-	$replace{'print_pass_args'} = $replace{'pass_args'} = make_args($cmd_args);
-	$replace{'print_fmt_args'} = make_format($cmd_args);
 	for (keys %defines) {
-		$replace{$1} = $defines{$_} if (/^${cmd_name}_(.*)$/);
+		$replace{$1} = delete $defines{$_} if (/^${cmd_name}_(.*)$/);
 	}
+	my %used;
 	my $text = $templates{$template};
-	$text =~ s/^\h*\@(\w+)\@\n/$replace{$1} \/\/ ""/smeg;
-	$text =~ s/\@(\w+)\@/$replace{$1} \/\/ ""/eg;
+	$text =~ s/^(\h*)\@(\w+)\@\n/$used{$2} = 1; indent($replace{$2} \/\/ "", $1)/smeg;
+	$text =~ s/\@(\w+)\@/$used{$1} = 1; $replace{$1} \/\/ ""/eg;
 	print $outh $text."\n";
+	my @not_used = grep { !defined($used{$_}) } keys %replace;
+	die("Fatal: unconsumed replacements in $cmd_name: ".join(" ", @not_used)."\n") if (@not_used);
 }
+die("Fatal: unconsumed DEFINEs: ".join(" ", keys %defines)."\n") if (%defines);
 
 print $outh "struct driver proxy_driver = {\n".join("", map { "\t$_,\n" } @cmd_table)."};\n";
 close $outh;

@@ -33,28 +33,50 @@
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 typedef unsigned int uint;
+typedef unsigned long ulong;
 
 #define as(ar) (sizeof(ar)/sizeof(ar[0]))
 
-#define __stringify(x) #x
-#define stringify(x) __stringify(x)
+#define stringify__(x) #x
+#define stringify(x) stringify__(x)
+
+// From https://stackoverflow.com/a/62984543/3685191
+#define deparen(x) esc_(ish_ x)
+#define esc_(...) esc__(__VA_ARGS__)
+#define esc__(...) van_ ## __VA_ARGS__
+#define ish_(...) ish_ __VA_ARGS__
+#define van_ish_
 
 #define shifted_bit(in, from, to) \
-	(((uint)(in) / (from > to ? from / to : 1) * (to > from ? to / from : 1)) & to)
+	((int)(((uint)(in) / (from > to ? from / to : 1) * (to > from ? to / from : 1)) & to))
 
 #if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4)
 # define ATTR_UNUSED __attribute__((unused))
 # define ATTR_NORETURN __attribute__((noreturn))
 # define ATTR_PRINTFLIKE(fmt,var) __attribute__((format(printf,fmt,var)))
-# define ATTR_PACKED(ref) __attribute__((packed,aligned(sizeof(ref))))
 #else
 # define ATTR_UNUSED
 # define ATTR_NORETURN
 # define ATTR_PRINTFLIKE(fmt,var)
-# define ATTR_PACKED(ref)
 #endif
 
-#if __GNUC__ >= 7
+#if defined(__clang__)
+# define DO_PRAGMA__(text) _Pragma(#text)
+# define DIAG_PUSH DO_PRAGMA__(clang diagnostic push)
+# define DIAG_POP DO_PRAGMA__(clang diagnostic pop)
+# define DIAG_DISABLE(text) DO_PRAGMA__(clang diagnostic ignored text)
+#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 5)
+# define DO_PRAGMA__(text) _Pragma(#text)
+# define DIAG_PUSH DO_PRAGMA__(GCC diagnostic push)
+# define DIAG_POP DO_PRAGMA__(GCC diagnostic pop)
+# define DIAG_DISABLE(text) DO_PRAGMA__(GCC diagnostic ignored text)
+#else
+# define DIAG_PUSH
+# define DIAG_POP
+# define DIAG_DISABLE(text)
+#endif
+
+#if __GNUC__ >= 7 || defined(__clang__)
 # define FALLTHROUGH __attribute__((fallthrough));
 #else
 # define FALLTHROUGH
@@ -85,6 +107,7 @@ typedef unsigned int uint;
 #define VERBOSE         0x800
 #define KEEPJOURNAL     0x1000
 #define ZERODELAY       0x2000
+#define FORCEASYNC      0x4000
 
 extern int DFlags;
 extern int JLimit;
@@ -95,7 +118,7 @@ extern int Pid;
 extern char Hostname[256];
 extern const char *Home;
 
-extern int BufferLimit;
+extern uint BufferLimit;
 
 extern int new_total[2], new_done[2];
 extern int flags_total[2], flags_done[2];
@@ -105,23 +128,24 @@ void stats( void );
 
 /* util.c */
 
-void vdebug( int, const char *, va_list va );
-void vdebugn( int, const char *, va_list va );
+void ATTR_PRINTFLIKE(2, 0) vdebug( int, const char *, va_list va );
+void ATTR_PRINTFLIKE(2, 0) vdebugn( int, const char *, va_list va );
 void ATTR_PRINTFLIKE(1, 2) info( const char *, ... );
 void ATTR_PRINTFLIKE(1, 2) infon( const char *, ... );
 void ATTR_PRINTFLIKE(1, 2) progress( const char *, ... );
 void ATTR_PRINTFLIKE(1, 2) notice( const char *, ... );
 void ATTR_PRINTFLIKE(1, 2) warn( const char *, ... );
 void ATTR_PRINTFLIKE(1, 2) error( const char *, ... );
+void ATTR_PRINTFLIKE(1, 0) vsys_error( const char *, va_list va );
 void ATTR_PRINTFLIKE(1, 2) sys_error( const char *, ... );
 void flushn( void );
 
 typedef struct string_list {
 	struct string_list *next;
 	char string[1];
-} ATTR_PACKED(void *) string_list_t;
+} string_list_t;
 
-void add_string_list_n( string_list_t **list, const char *str, int len );
+void add_string_list_n( string_list_t **list, const char *str, uint len );
 void add_string_list( string_list_t **list, const char *str );
 void free_string_list( string_list_t *list );
 
@@ -132,9 +156,9 @@ void *memrchr( const void *s, int c, size_t n );
 size_t strnlen( const char *str, size_t maxlen );
 #endif
 
-int starts_with( const char *str, int strl, const char *cmp, int cmpl );
-int starts_with_upper( const char *str, int strl, const char *cmp, int cmpl );
-int equals( const char *str, int strl, const char *cmp, int cmpl );
+int starts_with( const char *str, int strl, const char *cmp, uint cmpl );
+int starts_with_upper( const char *str, int strl, const char *cmp, uint cmpl );
+int equals( const char *str, int strl, const char *cmp, uint cmpl );
 
 #ifndef HAVE_TIMEGM
 time_t timegm( struct tm *tm );
@@ -145,35 +169,40 @@ void *nfcalloc( size_t sz );
 void *nfrealloc( void *mem, size_t sz );
 char *nfstrndup( const char *str, size_t nchars );
 char *nfstrdup( const char *str );
-int nfvasprintf( char **str, const char *fmt, va_list va );
+int ATTR_PRINTFLIKE(2, 0) nfvasprintf( char **str, const char *fmt, va_list va );
 int ATTR_PRINTFLIKE(2, 3) nfasprintf( char **str, const char *fmt, ... );
 int ATTR_PRINTFLIKE(3, 4) nfsnprintf( char *buf, int blen, const char *fmt, ... );
 void ATTR_NORETURN oob( void );
+void ATTR_NORETURN oom( void );
 
 char *expand_strdup( const char *s );
 
-int map_name( const char *arg, char **result, int reserve, const char *in, const char *out );
+int map_name( const char *arg, char **result, uint reserve, const char *in, const char *out );
 
 #define DEFINE_ARRAY_TYPE(T) \
 	typedef struct { \
 		T *data; \
-		int size; \
-	} ATTR_PACKED(T *) T##_array_t; \
-	typedef struct { \
+		uint size; \
+	} T##_array_t; \
+	typedef union { \
 		T##_array_t array; \
-		int alloc; \
-	} ATTR_PACKED(T *) T##_array_alloc_t; \
+		struct { \
+			T *data; \
+			uint size; \
+			uint alloc; \
+		}; \
+	} T##_array_alloc_t; \
 	static INLINE T *T##_array_append( T##_array_alloc_t *arr ) \
 	{ \
-		if (arr->array.size == arr->alloc) { \
+		if (arr->size == arr->alloc) { \
 			arr->alloc = arr->alloc * 2 + 100; \
-			arr->array.data = nfrealloc( arr->array.data, arr->alloc * sizeof(T) ); \
+			arr->data = nfrealloc( arr->data, arr->alloc * sizeof(T) ); \
 		} \
-		return &arr->array.data[arr->array.size++]; \
+		return &arr->data[arr->size++]; \
 	}
 
 #define ARRAY_INIT(arr) \
-	do { (arr)->array.data = 0; (arr)->array.size = (arr)->alloc = 0; } while (0)
+	do { (arr)->data = NULL; (arr)->size = (arr)->alloc = 0; } while (0)
 
 #define ARRAY_SQUEEZE(arr) \
 	do { \
@@ -187,7 +216,7 @@ int find_uint_array( const uint_array_t array, uint value );
 void arc4_init( void );
 uchar arc4_getbyte( void );
 
-int bucketsForSize( int size );
+uint bucketsForSize( uint size );
 
 typedef struct list_head {
 	struct list_head *next, *prev;
@@ -197,15 +226,16 @@ typedef struct notifier {
 	struct notifier *next;
 	void (*cb)( int what, void *aux );
 	void *aux;
-#ifdef HAVE_SYS_POLL_H
-	int index;
+#ifdef HAVE_POLL_H
+	uint index;
 #else
-	int fd, events;
+	int fd;
+	short events;
 #endif
 } notifier_t;
 
-#ifdef HAVE_SYS_POLL_H
-# include <sys/poll.h>
+#ifdef HAVE_POLL_H
+# include <poll.h>
 #else
 # define POLLIN 1
 # define POLLOUT 4
@@ -213,7 +243,8 @@ typedef struct notifier {
 #endif
 
 void init_notifier( notifier_t *sn, int fd, void (*cb)( int, void * ), void *aux );
-void conf_notifier( notifier_t *sn, int and_events, int or_events );
+void conf_notifier( notifier_t *sn, short and_events, short or_events );
+short notifier_config( notifier_t *sn );
 void wipe_notifier( notifier_t *sn );
 
 typedef struct {
@@ -226,7 +257,7 @@ typedef struct {
 void init_wakeup( wakeup_t *tmr, void (*cb)( void * ), void *aux );
 void conf_wakeup( wakeup_t *tmr, int timeout );
 void wipe_wakeup( wakeup_t *tmr );
-static INLINE int pending_wakeup( wakeup_t *tmr ) { return tmr->links.next != 0; }
+static INLINE int ATTR_UNUSED pending_wakeup( wakeup_t *tmr ) { return tmr->links.next != NULL; }
 
 void main_loop( void );
 

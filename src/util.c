@@ -23,9 +23,11 @@
 #include "common.h"
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <string.h>
 #include <ctype.h>
 #include <pwd.h>
@@ -42,7 +44,7 @@ flushn( void )
 	}
 }
 
-static void
+static void ATTR_PRINTFLIKE(1, 0)
 printn( const char *msg, va_list va )
 {
 	if (*msg == '\v')
@@ -149,25 +151,34 @@ error( const char *msg, ... )
 }
 
 void
-sys_error( const char *msg, ... )
+vsys_error( const char *msg, va_list va )
 {
-	va_list va;
 	char buf[1024];
 
+	int errno_bak = errno;
 	flushn();
-	va_start( va, msg );
 	if ((uint)vsnprintf( buf, sizeof(buf), msg, va ) >= sizeof(buf))
 		oob();
-	va_end( va );
+	errno = errno_bak;
 	perror( buf );
 }
 
 void
-add_string_list_n( string_list_t **list, const char *str, int len )
+sys_error( const char *msg, ... )
+{
+	va_list va;
+
+	va_start( va, msg );
+	vsys_error( msg, va );
+	va_end( va );
+}
+
+void
+add_string_list_n( string_list_t **list, const char *str, uint len )
 {
 	string_list_t *elem;
 
-	elem = nfmalloc( sizeof(*elem) + len );
+	elem = nfmalloc( offsetof(string_list_t, string) + len + 1 );
 	elem->next = *list;
 	*list = elem;
 	memcpy( elem->string, str, len );
@@ -203,7 +214,7 @@ vasprintf( char **strp, const char *fmt, va_list ap )
 	if (len >= (int)sizeof(tmp))
 		vsprintf( *strp, fmt, ap );
 	else
-		memcpy( *strp, tmp, len + 1 );
+		memcpy( *strp, tmp, (size_t)len + 1 );
 	return len;
 }
 #endif
@@ -232,34 +243,32 @@ strnlen( const char *str, size_t maxlen )
 #endif
 
 int
-starts_with( const char *str, int strl, const char *cmp, int cmpl )
+starts_with( const char *str, int strl, const char *cmp, uint cmpl )
 {
 	if (strl < 0)
 		strl = strnlen( str, cmpl + 1 );
-	return (strl >= cmpl) && !memcmp( str, cmp, cmpl );
+	return ((uint)strl >= cmpl) && !memcmp( str, cmp, cmpl );
 }
 
 int
-starts_with_upper( const char *str, int strl, const char *cmp, int cmpl )
+starts_with_upper( const char *str, int strl, const char *cmp, uint cmpl )
 {
-	int i;
-
 	if (strl < 0)
 		strl = strnlen( str, cmpl + 1 );
-	if (strl < cmpl)
+	if ((uint)strl < cmpl)
 		return 0;
-	for (i = 0; i < cmpl; i++)
+	for (uint i = 0; i < cmpl; i++)
 		if (str[i] != cmp[i] && toupper( str[i] ) != cmp[i])
 			return 0;
 	return 1;
 }
 
 int
-equals( const char *str, int strl, const char *cmp, int cmpl )
+equals( const char *str, int strl, const char *cmp, uint cmpl )
 {
 	if (strl < 0)
 		strl = strnlen( str, cmpl + 1 );
-	return (strl == cmpl) && !memcmp( str, cmp, cmpl );
+	return ((uint)strl == cmpl) && !memcmp( str, cmp, cmpl );
 }
 
 #ifndef HAVE_TIMEGM
@@ -341,13 +350,13 @@ nfsnprintf( char *buf, int blen, const char *fmt, ... )
 	va_list va;
 
 	va_start( va, fmt );
-	if (blen <= 0 || (uint)(ret = vsnprintf( buf, blen, fmt, va )) >= (uint)blen)
+	if (blen <= 0 || (uint)(ret = vsnprintf( buf, (size_t)blen, fmt, va )) >= (uint)blen)
 		oob();
 	va_end( va );
 	return ret;
 }
 
-static void ATTR_NORETURN
+void
 oom( void )
 {
 	fputs( "Fatal: Out of memory\n", stderr );
@@ -450,20 +459,20 @@ expand_strdup( const char *s )
 	if (*s == '~') {
 		s++;
 		if (!*s) {
-			p = 0;
+			p = NULL;
 			q = Home;
 		} else if (*s == '/') {
 			p = s;
 			q = Home;
 		} else {
 			if ((p = strchr( s, '/' ))) {
-				r = nfstrndup( s, (int)(p - s) );
+				r = nfstrndup( s, (size_t)(p - s) );
 				pw = getpwnam( r );
 				free( r );
 			} else
 				pw = getpwnam( s );
 			if (!pw)
-				return 0;
+				return NULL;
 			q = pw->pw_dir;
 		}
 		nfasprintf( &r, "%s%s", q, p ? p : "" );
@@ -474,24 +483,25 @@ expand_strdup( const char *s )
 
 /* Return value: 0 = ok, -1 = out found in arg, -2 = in found in arg but no out specified */
 int
-map_name( const char *arg, char **result, int reserve, const char *in, const char *out )
+map_name( const char *arg, char **result, uint reserve, const char *in, const char *out )
 {
 	char *p;
-	int i, l, ll, num, inl, outl;
+	uint i, l, ll, num, inl, outl;
 
+	assert( arg );
 	l = strlen( arg );
-	if (!in) {
+	assert( in );
+	inl = strlen( in );
+	if (!inl) {
 	  copy:
 		*result = nfmalloc( reserve + l + 1 );
 		memcpy( *result + reserve, arg, l + 1 );
 		return 0;
 	}
-	inl = strlen( in );
-	if (out) {
-		outl = strlen( out );
-		if (inl == outl && !memcmp( in, out, inl ))
-			goto copy;
-	}
+	assert( out );
+	outl = strlen( out );
+	if (equals( in, (int)inl, out, outl ))
+		goto copy;
 	for (num = 0, i = 0; i < l; ) {
 		for (ll = 0; ll < inl; ll++)
 			if (arg[i + ll] != in[ll])
@@ -500,7 +510,7 @@ map_name( const char *arg, char **result, int reserve, const char *in, const cha
 		i += inl;
 		continue;
 	  fout:
-		if (out) {
+		if (outl) {
 			for (ll = 0; ll < outl; ll++)
 				if (arg[i + ll] != out[ll])
 					goto fnexti;
@@ -511,7 +521,7 @@ map_name( const char *arg, char **result, int reserve, const char *in, const cha
 	}
 	if (!num)
 		goto copy;
-	if (!out)
+	if (!outl)
 		return -2;
 	*result = nfmalloc( reserve + l + num * (outl - inl) + 1 );
 	p = *result + reserve;
@@ -519,15 +529,7 @@ map_name( const char *arg, char **result, int reserve, const char *in, const cha
 		for (ll = 0; ll < inl; ll++)
 			if (arg[i + ll] != in[ll])
 				goto rnexti;
-#ifdef __GNUC__
-# pragma GCC diagnostic push
-/* https://gcc.gnu.org/bugzilla/show_bug.cgi?id=42145 */
-# pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
 		memcpy( p, out, outl );
-#ifdef __GNUC__
-# pragma GCC diagnostic pop
-#endif
 		p += outl;
 		i += inl;
 		continue;
@@ -541,7 +543,10 @@ map_name( const char *arg, char **result, int reserve, const char *in, const cha
 static int
 compare_uints( const void *l, const void *r )
 {
-	return *(uint *)l - *(uint *)r;
+	uint li = *(const uint *)l, ri = *(const uint *)r;
+	if (li != ri)  // Can't subtract, the result might not fit into signed int.
+		return li > ri ? 1 : -1;
+	return 0;
 }
 
 void
@@ -553,16 +558,16 @@ sort_uint_array( uint_array_t array )
 int
 find_uint_array( uint_array_t array, uint value )
 {
-	int bot = 0, top = array.size - 1;
-	while (bot <= top) {
-		int i = (bot + top) / 2;
+	uint bot = 0, top = array.size;
+	while (bot < top) {
+		uint i = (bot + top) / 2;
 		uint elt = array.data[i];
 		if (elt == value)
 			return 1;
 		if (elt < value)
 			bot = i + 1;
 		else
-			top = i - 1;
+			top = i;
 	}
 	return 0;
 }
@@ -589,7 +594,7 @@ arc4_init( void )
 	close( fd );
 
 	for (i = 0; i < 256; i++)
-		rs.s[i] = i;
+		rs.s[i] = (uchar)i;
 	for (i = j = 0; i < 256; i++) {
 		si = rs.s[i];
 		j += si + dat[i & 127];
@@ -621,13 +626,13 @@ static const uchar prime_deltas[] = {
     1, 29,  3, 21,  7, 17, 15,  9, 43, 35, 15,  0,  0,  0,  0,  0
 };
 
-int
-bucketsForSize( int size )
+uint
+bucketsForSize( uint size )
 {
-	int base = 4, bits = 2;
+	uint base = 4, bits = 2;
 
 	for (;;) {
-		int prime = base + prime_deltas[bits];
+		uint prime = base + prime_deltas[bits];
 		if (prime >= size)
 			return prime;
 		base <<= 1;
@@ -655,14 +660,14 @@ list_unlink( list_head_t *head )
 	assert( head->prev->next == head);
 	head->next->prev = head->prev;
 	head->prev->next = head->next;
-	head->next = head->prev = 0;
+	head->next = head->prev = NULL;
 }
 
 static notifier_t *notifiers;
 static int changed;  /* Iterator may be invalid now. */
-#ifdef HAVE_SYS_POLL_H
+#ifdef HAVE_POLL_H
 static struct pollfd *pollfds;
-static int npolls, rpolls;
+static uint npolls, rpolls;
 #else
 # ifdef HAVE_SYS_SELECT_H
 #  include <sys/select.h>
@@ -672,8 +677,8 @@ static int npolls, rpolls;
 void
 init_notifier( notifier_t *sn, int fd, void (*cb)( int, void * ), void *aux )
 {
-#ifdef HAVE_SYS_POLL_H
-	int idx = npolls++;
+#ifdef HAVE_POLL_H
+	uint idx = npolls++;
 	if (rpolls < npolls) {
 		rpolls = npolls;
 		pollfds = nfrealloc( pollfds, npolls * sizeof(*pollfds) );
@@ -692,13 +697,23 @@ init_notifier( notifier_t *sn, int fd, void (*cb)( int, void * ), void *aux )
 }
 
 void
-conf_notifier( notifier_t *sn, int and_events, int or_events )
+conf_notifier( notifier_t *sn, short and_events, short or_events )
 {
-#ifdef HAVE_SYS_POLL_H
-	int idx = sn->index;
+#ifdef HAVE_POLL_H
+	uint idx = sn->index;
 	pollfds[idx].events = (pollfds[idx].events & and_events) | or_events;
 #else
 	sn->events = (sn->events & and_events) | or_events;
+#endif
+}
+
+short
+notifier_config( notifier_t *sn )
+{
+#ifdef HAVE_POLL_H
+	return pollfds[sn->index].events;
+#else
+	return sn->events;
 #endif
 }
 
@@ -706,17 +721,17 @@ void
 wipe_notifier( notifier_t *sn )
 {
 	notifier_t **snp;
-#ifdef HAVE_SYS_POLL_H
-	int idx;
+#ifdef HAVE_POLL_H
+	uint idx;
 #endif
 
 	for (snp = &notifiers; *snp != sn; snp = &(*snp)->next)
 		assert( *snp );
 	*snp = sn->next;
-	sn->next = 0;
+	sn->next = NULL;
 	changed = 1;
 
-#ifdef HAVE_SYS_POLL_H
+#ifdef HAVE_POLL_H
 	idx = sn->index;
 	memmove( pollfds + idx, pollfds + idx + 1, (--npolls - idx) * sizeof(*pollfds) );
 	for (sn = notifiers; sn; sn = sn->next) {
@@ -729,7 +744,7 @@ wipe_notifier( notifier_t *sn )
 static time_t
 get_now( void )
 {
-	return time( 0 );
+	return time( NULL );
 }
 
 static list_head_t timers = { &timers, &timers };
@@ -739,7 +754,7 @@ init_wakeup( wakeup_t *tmr, void (*cb)( void * ), void *aux )
 {
 	tmr->cb = cb;
 	tmr->aux = aux;
-	tmr->links.next = tmr->links.prev = 0;
+	tmr->links.next = tmr->links.prev = NULL;
 }
 
 void
@@ -788,7 +803,7 @@ event_wait( void )
 	notifier_t *sn;
 	int m;
 
-#ifdef HAVE_SYS_POLL_H
+#ifdef HAVE_POLL_H
 	int timeout = -1;
 	if ((head = timers.next) != &timers) {
 		wakeup_t *tmr = (wakeup_t *)head;
@@ -810,7 +825,7 @@ event_wait( void )
 		break;
 	}
 	for (sn = notifiers; sn; sn = sn->next) {
-		int n = sn->index;
+		uint n = sn->index;
 		if ((m = pollfds[n].revents)) {
 			assert( !(m & POLLNVAL) );
 			sn->cb( m | shifted_bit( m, POLLHUP, POLLIN ), sn->aux );

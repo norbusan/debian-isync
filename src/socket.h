@@ -30,40 +30,40 @@
 #endif
 
 #ifdef HAVE_LIBSSL
-typedef struct ssl_st SSL;
-typedef struct ssl_ctx_st SSL_CTX;
-typedef struct stack_st _STACK;
+# include <openssl/ssl.h>
+# include <openssl/x509.h>
 
 enum {
-	SSLv3 = 2,
 	TLSv1 = 4,
 	TLSv1_1 = 8,
-	TLSv1_2 = 16
+	TLSv1_2 = 16,
+	TLSv1_3 = 32
 };
 #endif
 
 typedef struct {
 	char *tunnel;
 	char *host;
-	int port;
+	ushort port;
 	int timeout;
 #ifdef HAVE_LIBSSL
 	char *cert_file;
 	char *client_certfile;
 	char *client_keyfile;
+	char *cipher_string;
 	char system_certs;
 	char ssl_versions;
 
 	/* these are actually variables and are leaked at the end */
 	char ssl_ctx_valid;
-	_STACK *trusted_certs;
+	STACK_OF(X509) *trusted_certs;
 	SSL_CTX *SSLContext;
 #endif
 } server_conf_t;
 
 typedef struct buff_chunk {
 	struct buff_chunk *next;
-	int len;
+	uint len;
 	char data[1];
 } buff_chunk_t;
 
@@ -75,7 +75,7 @@ typedef struct {
 #ifdef HAVE_IPV6
 	struct addrinfo *addrs, *curr_addr; /* needed during connect */
 #else
-	char **curr_addr; /* needed during connect */
+	struct addr_info *addrs, *curr_addr; /* needed during connect */
 #endif
 	char *name;
 #ifdef HAVE_LIBSSL
@@ -104,17 +104,16 @@ typedef struct {
 	/* writing */
 	buff_chunk_t *append_buf; /* accumulating buffer */
 	buff_chunk_t *write_buf, **write_buf_append; /* buffer head & tail */
-	int writing;
 #ifdef HAVE_LIBZ
-	int append_avail; /* space left in accumulating buffer */
+	uint append_avail; /* space left in accumulating buffer */
 #endif
-	int write_offset; /* offset into buffer head */
-	int buffer_mem; /* memory currently occupied by buffers in the queue */
+	uint write_offset; /* offset into buffer head */
+	uint buffer_mem; /* memory currently occupied by buffers in the queue */
 
 	/* reading */
-	int offset; /* start of filled bytes in buffer */
-	int bytes; /* number of filled bytes in buffer */
-	int scanoff; /* offset to continue scanning for newline at, relative to 'offset' */
+	uint offset; /* start of filled bytes in buffer */
+	uint bytes; /* number of filled bytes in buffer */
+	uint scanoff; /* offset to continue scanning for newline at, relative to 'offset' */
 	char buf[100000];
 #ifdef HAVE_LIBZ
 	char z_buf[100000];
@@ -135,20 +134,20 @@ static INLINE void socket_init( conn_t *conn,
 	conn->write_callback = write_callback;
 	conn->callback_aux = aux;
 	conn->fd = -1;
-	conn->name = 0;
+	conn->name = NULL;
 	conn->write_buf_append = &conn->write_buf;
 }
 void socket_connect( conn_t *conn, void (*cb)( int ok, void *aux ) );
 void socket_start_tls(conn_t *conn, void (*cb)( int ok, void *aux ) );
 void socket_start_deflate( conn_t *conn );
 void socket_close( conn_t *sock );
-void socket_expect_read( conn_t *sock, int expect );
-int socket_read( conn_t *sock, char *buf, int len ); /* never waits */
+void socket_expect_activity( conn_t *sock, int expect );
+int socket_read( conn_t *sock, char *buf, uint len ); /* never waits */
 char *socket_read_line( conn_t *sock ); /* don't free return value; never waits */
 typedef enum { KeepOwn = 0, GiveOwn } ownership_t;
 typedef struct {
 	char *buf;
-	int len;
+	uint len;
 	ownership_t takeOwn;
 } conn_iovec_t;
 void socket_write( conn_t *sock, conn_iovec_t *iov, int iovcnt );

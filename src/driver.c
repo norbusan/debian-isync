@@ -27,6 +27,15 @@
 
 driver_t *drivers[N_DRIVERS] = { &maildir_driver, &imap_driver };
 
+uint
+count_generic_messages( message_t *msgs )
+{
+	uint count = 0;
+	for (; msgs; msgs = msgs->next)
+		count++;
+	return count;
+}
+
 void
 free_generic_messages( message_t *msgs )
 {
@@ -40,7 +49,7 @@ free_generic_messages( message_t *msgs )
 }
 
 void
-parse_generic_store( store_conf_t *store, conffile_t *cfg )
+parse_generic_store( store_conf_t *store, conffile_t *cfg, const char *type )
 {
 	if (!strcasecmp( "Trash", cfg->cmd )) {
 		store->trash = nfstrdup( cfg->val );
@@ -63,7 +72,7 @@ parse_generic_store( store_conf_t *store, conffile_t *cfg )
 		}
 		store->flat_delim = nfstrdup( cfg->val );
 	} else {
-		error( "%s:%d: unknown keyword '%s'\n", cfg->file, cfg->line, cfg->cmd );
+		error( "%s:%d: keyword '%s' is not recognized in %s sections\n", cfg->file, cfg->line, cfg->cmd, type );
 		cfg->err = 1;
 	}
 }
