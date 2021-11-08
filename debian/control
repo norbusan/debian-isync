@@ -2,7 +2,7 @@ Source: isync
 Section: mail
 Priority: optional
 Maintainer: Norbert Preining <norbert@preining.info>
-Standards-Version: 4.2.1
+Standards-Version: 4.6.0
 Build-Depends: debhelper (>= 11),
  libdb-dev,
  libsasl2-dev,
