@@ -1,3 +1,15 @@
+isync (1.4.3-1) unstable; urgency=medium
+
+  * New upstream version 1.4.3
+  * Drop patches, included upstream.
+  * Update list of installed files.
+  * Drop references to isync.
+  * Take over maintainership (Closes: #991904).
+  * Bump standards level to 4.6.0, no changes necessary.
+  * Use debhelper-compat (= 12) instead of d/compat.
+
+ -- Norbert Preining <norbert@preining.info>  Tue, 09 Nov 2021 08:45:36 +0900
+
 isync (1.3.0-2.2) unstable; urgency=medium
 
   * Non-maintainer upload.
