@@ -1,3 +1,123 @@
+2021-11-25 16:04  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	bump version
+
+2021-11-26 10:53  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* configure.ac:
+
+	modernize configure.ac
+
+2021-12-01 10:25  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	don't complain about concurrent flagging as deleted
+
+	the result of propagating a deletion is flagging as deleted, so shut up
+	if the only remote change is exactly that.
+
+2021-11-26 22:05  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	fix read beyond end of input in copy_msg_convert()
+
+	the input isn't necessarily null-terminated (it currently is for imap,
+	but not for maildir), so if the message ended somewhere within the
+	header field name, we'd read beyond its end, which theoretically could
+	cause a crash. no other adverse effects could result, as we'd stop
+	processing such a broken message right afterwards.
+
+	amends 70bad661.
+
+2021-11-24 17:24  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	reject unreasonably long mailbox names from IMAP LIST
+
+	this wasn't really a security problem, as the name mapping we actually
+	do does not change the string length, and the iteration was already
+	safe after the literal length fix, but it's still better to catch weird
+	input.
+
+2021-11-24 16:51  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	reject messages that grow too large due to conversion
+
+	that shouldn't really be a problem, as we have 2GB of headroom, and most
+	growth would happen when sending an all-newlines message from maildir to
+	imap (due to CR additions), which is mostly non-critical. but better
+	safe than sorry.
+
+2021-11-24 16:46  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	report conversion errors directly in copy_msg_convert()
+
+	that makes it easier to report various conditions without introducing
+	separate error codes.
+
+2021-11-24 16:22  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_maildir.c:
+
+	deal with oversized messages in maildirs
+
+	don't try to read messages > 2G, as that will only lead to trouble down
+	the line.
+
+	this wouldn't have worked on linux anyway (we read in one chunk, and
+	that is limited to (2^31 - 2^12) on all architectures), but on
+	platforms were big reads work, this was a security problem if one
+	synchronized other users' maildirs.
+
+	as a minor fix on the side, we now also clip the reported message size,
+	so MaxSize works for excessively big messages.
+
+2021-11-24 18:21  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/drv_imap.c:
+
+	CVE-2021-3657: reject excessively large IMAP literals
+
+	we didn't limit the 32-bit size of literals so far, which, given that we
+	use int-sized lengths & offsets, permitted all kinds of buffer
+	overflows. malicious/compromised servers may have been able to exploit
+	this. actual email senders would be constrained by size limits for
+	delivered mails, and to cause more than a crash they'd have to predict
+	the exact size of the final message.
+
+	we now limit to 2GB, which, given that we use unsigned ints since
+	e2d3b4d55 (v1.4.0), gives the handlers downstream plenty of headroom.
+
+	an alternative would have been using 64-bit offsets, but this seems like
+	major overkill, even if IMAP4rev2 recently mandated it (we talk only
+	IMAP4rev1, so we can ignore it).
+
+2021-11-22 19:57  Oswald Buddenhagen <ossi@users.sf.net>
+
+	* src/sync.c:
+
+	CVE-2021-44143: don't overflow heap on messages without headers
+
+	when a broken/compromised/malicious server gives us a message that
+	starts with an empty line, we'd enter the path for inserting a pristine
+	placeholder subject, for which we unfortunately didn't actually allocate
+	space (unless MaxSize is in use and the message exceeds it).
+
+	note that this cannot be triggered by merely receiving a crafted mail
+	with no headers (yes, it's actually possible to send such a thing), as
+	the delivery of mails adds plenty of headers.
+
+	amends 70bad661.
+
 2021-07-29 11:14  Oswald Buddenhagen <ossi@users.sf.net>
 
 	* configure.ac:
