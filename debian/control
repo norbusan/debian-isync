@@ -9,8 +9,8 @@ Build-Depends: debhelper-compat (= 12),
  libssl-dev,
  pkg-config,
  zlib1g-dev
-Vcs-Git: https://salsa.debian.org/debian/isync.git
-Vcs-Browser: https://salsa.debian.org/debian/isync
+Vcs-Git: https://salsa.debian.org/preining/isync.git
+Vcs-Browser: https://salsa.debian.org/preining/isync
 Homepage: http://isync.sourceforge.net/
 
 Package: isync
