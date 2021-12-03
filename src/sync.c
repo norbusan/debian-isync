@@ -406,11 +406,11 @@ copy_msg_bytes( char **out_ptr, const char *in_buf, uint *in_idx, uint in_len, i
 }
 
 static int
-copy_msg_convert( int in_cr, int out_cr, copy_vars_t *vars )
+copy_msg_convert( int in_cr, int out_cr, copy_vars_t *vars, int t )
 {
 	char *in_buf = vars->data.data;
 	uint in_len = vars->data.len;
-	uint idx = 0, sbreak = 0, ebreak = 0, break2 = 0;
+	uint idx = 0, sbreak = 0, ebreak = 0, break2 = UINT_MAX;
 	uint lines = 0, hdr_crs = 0, bdy_crs = 0, app_cr = 0, extra = 0;
 	uint add_subj = 0;
 
@@ -428,9 +428,10 @@ copy_msg_convert( int in_cr, int out_cr, copy_vars_t *vars )
 					if (!vars->minimal)
 						goto oke;
 				} else {
-					if (!break2 && vars->minimal && !strncasecmp( in_buf + start, "Subject:", 8 )) {
+					if (break2 == UINT_MAX && vars->minimal &&
+					    starts_with_upper( in_buf + start, (int)(in_len - start), "SUBJECT:", 8 )) {
 						break2 = start + 8;
-						if (in_buf[break2] == ' ')
+						if (break2 < in_len && in_buf[break2] == ' ')
 							break2++;
 					}
 					lines++;
@@ -441,7 +442,7 @@ copy_msg_convert( int in_cr, int out_cr, copy_vars_t *vars )
 						sbreak = ebreak = start;
 					if (vars->minimal) {
 						in_len = idx;
-						if (!break2) {
+						if (break2 == UINT_MAX) {
 							break2 = start;
 							add_subj = 1;
 						}
@@ -451,7 +452,8 @@ copy_msg_convert( int in_cr, int out_cr, copy_vars_t *vars )
 				goto nloop;
 			}
 		}
-		/* invalid message */
+		warn( "Warning: message %u from %s has incomplete header; skipping.\n",
+		      vars->msg->uid, str_fn[1-t] );
 		free( in_buf );
 		return 0;
 	  oke:
@@ -493,10 +495,16 @@ copy_msg_convert( int in_cr, int out_cr, copy_vars_t *vars )
 	}
 
 	vars->data.len = in_len + extra;
+	if (vars->data.len > INT_MAX) {
+		warn( "Warning: message %u from %s is too big after conversion; skipping.\n",
+		      vars->msg->uid, str_fn[1-t] );
+		free( in_buf );
+		return 0;
+	}
 	char *out_buf = vars->data.data = nfmalloc( vars->data.len );
 	idx = 0;
 	if (vars->srec) {
-		if (break2 && break2 < sbreak) {
+		if (break2 < sbreak) {
 			copy_msg_bytes( &out_buf, in_buf, &idx, break2, in_cr, out_cr );
 			memcpy( out_buf, dummy_pfx, strlen(dummy_pfx) );
 			out_buf += strlen(dummy_pfx);
@@ -512,7 +520,7 @@ copy_msg_convert( int in_cr, int out_cr, copy_vars_t *vars )
 		*out_buf++ = '\n';
 		idx = ebreak;
 
-		if (break2 >= sbreak) {
+		if (break2 != UINT_MAX && break2 >= sbreak) {
 			copy_msg_bytes( &out_buf, in_buf, &idx, break2, in_cr, out_cr );
 			if (!add_subj) {
 				memcpy( out_buf, dummy_pfx, strlen(dummy_pfx) );
@@ -556,9 +564,7 @@ msg_fetched( int sts, void *aux )
 		scr = (svars->drv[1-t]->get_caps( svars->ctx[1-t] ) / DRV_CRLF) & 1;
 		tcr = (svars->drv[t]->get_caps( svars->ctx[t] ) / DRV_CRLF) & 1;
 		if (vars->srec || scr != tcr) {
-			if (!copy_msg_convert( scr, tcr, vars )) {
-				warn( "Warning: message %u from %s has incomplete header.\n",
-				      vars->msg->uid, str_fn[1-t] );
+			if (!copy_msg_convert( scr, tcr, vars, t )) {
 				vars->cb( SYNC_NOGOOD, 0, vars );
 				return;
 			}
@@ -1690,7 +1696,11 @@ box_loaded( int sts, message_t *msgs, int total_msgs, int recent_msgs, void *aux
 						JLOG( "> %u %u 0", (srec->uid[F], srec->uid[N]), "near side expired, orphaning far side" );
 						srec->uid[N] = 0;
 					} else {
-						if (srec->msg[t] && (srec->msg[t]->status & M_FLAGS) && srec->msg[t]->flags != srec->flags)
+						if (srec->msg[t] && (srec->msg[t]->status & M_FLAGS) &&
+						    // Ignore deleted flag, as that's what we'll change ourselves ...
+						    (((srec->msg[t]->flags & ~F_DELETED) != (srec->flags & ~F_DELETED)) ||
+						     // ... except for undeletion, as that's the opposite.
+						     (!(srec->msg[t]->flags & F_DELETED) && (srec->flags & F_DELETED))))
 							notice( "Notice: conflicting changes in (%u,%u)\n", srec->uid[F], srec->uid[N] );
 						if (svars->chan->ops[t] & OP_DELETE) {
 							debug( "  %sing delete\n", str_hl[t] );
