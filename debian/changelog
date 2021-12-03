@@ -1,3 +1,11 @@
+isync (1.4.4-1) unstable; urgency=high
+
+  * New upstream version 1.4.4 (Closes: #999804)
+    (fixes CVE-2021-3657, CVE-2021-44143)
+  * Update VCS place since debian NS is not accessible to me.
+
+ -- Norbert Preining <norbert@preining.info>  Fri, 03 Dec 2021 20:39:17 +0900
+
 isync (1.4.3-1) unstable; urgency=medium
 
   * New upstream version 1.4.3
